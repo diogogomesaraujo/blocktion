@@ -1,4 +1,5 @@
 use crate::{
+    Topic,
     behaviour::MyBehaviour,
     rpc::{LISTEN_ON, Rpc},
 };
@@ -9,7 +10,16 @@ use libp2p::{
     kad::{self, Mode},
     noise, ping, tcp, yamux,
 };
-use std::{error::Error, str::SplitWhitespace, time::Duration};
+use libp2p_gossipsub::{
+    self as gossipsub, IdentTopic, MessageAuthenticity, MessageId, ValidationMode,
+};
+use std::{
+    collections::hash_map::DefaultHasher,
+    error::Error,
+    hash::{Hash, Hasher},
+    str::SplitWhitespace,
+    time::Duration,
+};
 use tracing::info;
 
 pub struct Node {
@@ -22,6 +32,9 @@ pub enum RpcAction {
     FindNode,
     FindValue,
     RoutingTable,
+    Transaction,
+    Block,
+    Metadata,
 }
 
 impl Node {
@@ -41,6 +54,9 @@ impl Rpc for Node {
             "FIND_VALUE" => Some(RpcAction::FindValue),
             "FIND_NODE" => Some(RpcAction::FindNode),
             "ROUTING_TABLE" => Some(RpcAction::RoutingTable),
+            "GOSSIP_TX" => Some(RpcAction::Transaction),
+            "GOSSIP_BLOCK" => Some(RpcAction::Block),
+            "GOSSIP_META" => Some(RpcAction::Metadata),
             _ => None,
         }
     }
@@ -65,8 +81,7 @@ impl Rpc for Node {
                 kad_cfg.set_query_timeout(Duration::from_secs(60));
                 kad_cfg.set_periodic_bootstrap_interval(Some(Duration::from_secs(300)));
 
-                let store = kad::store::MemoryStore::new(key.public().to_peer_id());
-
+                let store = kad::store::MemoryStore::new(local_id);
                 let kad = kad::Behaviour::with_config(local_id, store, kad_cfg);
 
                 let ping = ping::Behaviour::new(
@@ -80,10 +95,32 @@ impl Rpc for Node {
                     key.public(),
                 ));
 
+                let message_id_fn = |message: &gossipsub::Message| {
+                    let mut hasher = DefaultHasher::new();
+                    message.data.hash(&mut hasher);
+                    MessageId::from(hasher.finish().to_string())
+                };
+
+                let gossip_config = gossipsub::ConfigBuilder::default()
+                    .heartbeat_interval(Duration::from_secs(10))
+                    .validation_mode(ValidationMode::Strict)
+                    .message_id_fn(message_id_fn)
+                    .build()?;
+
+                let mut gossip = gossipsub::Behaviour::new(
+                    MessageAuthenticity::Signed(key.clone()),
+                    gossip_config,
+                )?;
+
+                gossip.subscribe(&IdentTopic::new(Topic::TRANSACTIONS))?;
+                gossip.subscribe(&IdentTopic::new(Topic::BLOCKS))?;
+                gossip.subscribe(&IdentTopic::new(Topic::OVERLAY_META))?;
+
                 Ok(MyBehaviour {
                     kad,
                     ping,
                     identify,
+                    gossip,
                 })
             })?
             .build();
@@ -92,16 +129,12 @@ impl Rpc for Node {
             swarm
                 .behaviour_mut()
                 .kad
-                .add_address(&bootstrap_id, bootstrap_addr.clone());
+                .add_address(bootstrap_id, bootstrap_addr.clone());
             swarm.dial(*bootstrap_id)?;
         }
 
         swarm.behaviour_mut().kad.set_mode(Some(Mode::Server));
         swarm.listen_on(LISTEN_ON.parse()?)?;
-        // swarm
-        //     .behaviour_mut()
-        //     .kad
-        //     .get_closest_peers(swarm.local_peer_id());
 
         Ok(swarm)
     }
@@ -149,6 +182,30 @@ impl Rpc for Node {
                     "Current state of the routing table: {:?}",
                     swarm.connected_peers().collect::<Vec<&PeerId>>(),
                 );
+            }
+
+            RpcAction::Transaction => {
+                let payload = Self::arg_parse(args)?.into_bytes();
+                swarm.behaviour_mut().gossip.publish(
+                    libp2p_gossipsub::IdentTopic::new(Topic::TRANSACTIONS),
+                    payload,
+                )?;
+            }
+
+            RpcAction::Block => {
+                let payload = Self::arg_parse(args)?.into_bytes();
+                swarm
+                    .behaviour_mut()
+                    .gossip
+                    .publish(libp2p_gossipsub::IdentTopic::new(Topic::BLOCKS), payload)?;
+            }
+
+            RpcAction::Metadata => {
+                let payload = Self::arg_parse(args)?.into_bytes();
+                swarm.behaviour_mut().gossip.publish(
+                    libp2p_gossipsub::IdentTopic::new(Topic::OVERLAY_META),
+                    payload,
+                )?;
             }
         }
 

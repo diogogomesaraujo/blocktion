@@ -1,4 +1,4 @@
-use crate::{behaviour::MyBehaviour, rpc::Rpc};
+use crate::{Topic, behaviour::MyBehaviour, rpc::Rpc};
 use async_trait::async_trait;
 use libp2p::{
     Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder, identify,
@@ -6,7 +6,16 @@ use libp2p::{
     kad::{self, Mode},
     noise, ping, tcp, yamux,
 };
-use std::{error::Error, str::SplitWhitespace, time::Duration};
+
+use libp2p_gossipsub::{self as gossipsub, IdentTopic, MessageAuthenticity, MessageId};
+
+use std::{
+    collections::hash_map::DefaultHasher,
+    error::Error,
+    hash::{Hash, Hasher},
+    str::SplitWhitespace,
+    time::Duration,
+};
 use tracing::info;
 
 pub struct BootNode(Multiaddr);
@@ -54,8 +63,7 @@ impl Rpc for BootNode {
                 kad_cfg.set_query_timeout(Duration::from_secs(60));
                 kad_cfg.set_periodic_bootstrap_interval(Some(Duration::from_secs(300)));
 
-                let store = kad::store::MemoryStore::new(key.public().to_peer_id());
-
+                let store = kad::store::MemoryStore::new(local_id);
                 let kad = kad::Behaviour::with_config(local_id, store, kad_cfg);
 
                 let ping = ping::Behaviour::new(
@@ -69,20 +77,38 @@ impl Rpc for BootNode {
                     key.public(),
                 ));
 
+                let message_id_fn = |message: &gossipsub::Message| {
+                    let mut hasher = DefaultHasher::new();
+                    message.data.hash(&mut hasher);
+                    MessageId::from(hasher.finish().to_string())
+                };
+
+                let gossip_config = gossipsub::ConfigBuilder::default()
+                    .heartbeat_interval(Duration::from_secs(10))
+                    .validation_mode(libp2p_gossipsub::ValidationMode::Strict)
+                    .message_id_fn(message_id_fn)
+                    .build()?;
+
+                let mut gossip = gossipsub::Behaviour::new(
+                    MessageAuthenticity::Signed(key.clone()),
+                    gossip_config,
+                )?;
+
+                gossip.subscribe(&IdentTopic::new(Topic::TRANSACTIONS))?;
+                gossip.subscribe(&IdentTopic::new(Topic::BLOCKS))?;
+                gossip.subscribe(&IdentTopic::new(Topic::OVERLAY_META))?;
+
                 Ok(MyBehaviour {
                     kad,
                     ping,
                     identify,
+                    gossip,
                 })
             })?
             .build();
 
         swarm.behaviour_mut().kad.set_mode(Some(Mode::Server));
         swarm.listen_on(self.0)?;
-        // swarm
-        //     .behaviour_mut()
-        //     .kad
-        //     .get_closest_peers(swarm.local_peer_id());
 
         Ok(swarm)
     }

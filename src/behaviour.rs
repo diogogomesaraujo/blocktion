@@ -7,15 +7,20 @@ use libp2p::{
 use std::error::Error;
 use tracing::{error, info};
 
-use crate::config::Config;
+use libp2p_gossipsub::{self as gossipsub};
 
-//similar to example from https://docs.rs/libp2p/latest/libp2p/swarm/trait.NetworkBehaviour.html
+use libp2p_gossipsub::{self};
+
+use crate::{Topic, config::Config};
+
+// similar to example from https://docs.rs/libp2p/latest/libp2p/swarm/trait.NetworkBehaviour.html
 #[derive(NetworkBehaviour)]
 #[behaviour(to_swarm = "MyBehaviourEvent")]
 pub struct MyBehaviour {
     pub kad: kad::Behaviour<MemoryStore>,
     pub ping: ping::Behaviour,
     pub identify: identify::Behaviour,
+    pub gossip: gossipsub::Behaviour,
 }
 
 #[derive(Debug)]
@@ -23,6 +28,7 @@ pub enum MyBehaviourEvent {
     Kad(kad::Event),
     Ping(ping::Event),
     Identify(identify::Event),
+    Gossip(gossipsub::Event),
 }
 
 impl From<kad::Event> for MyBehaviourEvent {
@@ -40,6 +46,12 @@ impl From<ping::Event> for MyBehaviourEvent {
 impl From<identify::Event> for MyBehaviourEvent {
     fn from(event: identify::Event) -> Self {
         Self::Identify(event)
+    }
+}
+
+impl From<gossipsub::Event> for MyBehaviourEvent {
+    fn from(event: gossipsub::Event) -> Self {
+        Self::Gossip(event)
     }
 }
 
@@ -132,6 +144,47 @@ impl MyBehaviourEvent {
                 }
 
                 let _ = swarm.behaviour_mut().kad.bootstrap();
+            }
+
+            SwarmEvent::Behaviour(MyBehaviourEvent::Gossip(gossipsub::Event::Message {
+                propagation_source,
+                message_id,
+                message,
+            })) => {
+                let topic = message.topic.as_str();
+                let data = String::from_utf8_lossy(&message.data);
+
+                info!(
+                    "Received gossip message from {:?}, id {:?}, topic {}, data {:?}",
+                    propagation_source, message_id, topic, data
+                );
+
+                match topic {
+                    Topic::TRANSACTIONS => {
+                        info!("Transaction announcement received.");
+                    }
+                    Topic::BLOCKS => {
+                        info!("Block announcement received.");
+                    }
+                    Topic::OVERLAY_META => {
+                        info!("Overlay metadata received.");
+                    }
+                    _ => {}
+                }
+            }
+
+            SwarmEvent::Behaviour(MyBehaviourEvent::Gossip(gossipsub::Event::Subscribed {
+                peer_id,
+                topic,
+            })) => {
+                info!("Peer {:?} subscribed to topic {}", peer_id, topic);
+            }
+
+            SwarmEvent::Behaviour(MyBehaviourEvent::Gossip(gossipsub::Event::Unsubscribed {
+                peer_id,
+                topic,
+            })) => {
+                info!("Peer {:?} unsubscribed from topic {}", peer_id, topic);
             }
 
             SwarmEvent::ConnectionEstablished {
