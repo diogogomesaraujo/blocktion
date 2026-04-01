@@ -57,7 +57,7 @@ impl Rpc for Node {
             "FIND_VALUE" => Some(RpcAction::FindValue),
             "FIND_NODE" => Some(RpcAction::FindNode),
             "ROUTING_TABLE" => Some(RpcAction::RoutingTable),
-            "GOSSIP_TX" => Some(RpcAction::Transaction),
+            "GOSSIP_TRANSACTION" => Some(RpcAction::Transaction),
             "GOSSIP_BLOCK" => Some(RpcAction::Block),
             "GOSSIP_META" => Some(RpcAction::Metadata),
             "GOSSIP_REPUTATION" => Some(RpcAction::Reputation),
