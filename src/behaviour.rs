@@ -15,7 +15,7 @@ use crate::{
     config::Config,
     gossip::{
         BlockAnnouncement, LivenessSummary, OverlayMetadata, ReputationSignal,
-        SuspiciousPeerReport, Topic, TransactionAnnouncement,
+        SuspiciousPeerReport, TransactionAnnouncement, topic,
     },
 };
 
@@ -157,50 +157,50 @@ impl MyBehaviourEvent {
                 message_id,
                 message,
             })) => {
-                let topic = message.topic.as_str();
+                let t = message.topic.as_str();
 
                 info!(
                     "Received gossip message from {:?}, id {:?}, topic {}",
-                    propagation_source, message_id, topic
+                    propagation_source, message_id, t
                 );
 
-                match topic {
-                    Topic::TRANSACTIONS => {
+                match t {
+                    topic::TRANSACTIONS => {
                         match serde_json::from_slice::<TransactionAnnouncement>(&message.data) {
                             Ok(msg) => info!("Transaction announcement: {:?}", msg),
                             Err(e) => error!("Invalid transaction payload: {e}"),
                         }
                     }
 
-                    Topic::BLOCKS => {
+                    topic::BLOCKS => {
                         match serde_json::from_slice::<BlockAnnouncement>(&message.data) {
                             Ok(msg) => info!("Block announcement: {:?}", msg),
                             Err(e) => error!("Invalid block payload: {e}"),
                         }
                     }
 
-                    Topic::OVERLAY_META => {
+                    topic::OVERLAY_META => {
                         match serde_json::from_slice::<OverlayMetadata>(&message.data) {
                             Ok(msg) => info!("Overlay metadata: {:?}", msg),
                             Err(e) => error!("Invalid overlay metadata payload: {e}"),
                         }
                     }
 
-                    Topic::PEER_REPUTATION => {
+                    topic::PEER_REPUTATION => {
                         match serde_json::from_slice::<ReputationSignal>(&message.data) {
                             Ok(msg) => info!("Peer reputation signal: {:?}", msg),
                             Err(e) => error!("Invalid reputation payload: {e}"),
                         }
                     }
 
-                    Topic::SUSPICIOUS_PEERS => {
+                    topic::SUSPICIOUS_PEERS => {
                         match serde_json::from_slice::<SuspiciousPeerReport>(&message.data) {
                             Ok(msg) => info!("Suspicious peer report: {:?}", msg),
                             Err(e) => error!("Invalid suspicious-peer payload: {e}"),
                         }
                     }
 
-                    Topic::LIVENESS => {
+                    topic::LIVENESS => {
                         match serde_json::from_slice::<LivenessSummary>(&message.data) {
                             Ok(msg) => info!("Liveness summary: {:?}", msg),
                             Err(e) => error!("Invalid liveness payload: {e}"),

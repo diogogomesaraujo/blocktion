@@ -1,6 +1,6 @@
 use crate::{
     behaviour::MyBehaviour,
-    gossip::Topic,
+    gossip::topic,
     rpc::{LISTEN_ON, Rpc},
 };
 use async_trait::async_trait;
@@ -118,12 +118,12 @@ impl Rpc for Node {
                     gossip_config,
                 )?;
 
-                gossip.subscribe(&IdentTopic::new(Topic::TRANSACTIONS))?;
-                gossip.subscribe(&IdentTopic::new(Topic::BLOCKS))?;
-                gossip.subscribe(&IdentTopic::new(Topic::OVERLAY_META))?;
-                gossip.subscribe(&IdentTopic::new(Topic::PEER_REPUTATION))?;
-                gossip.subscribe(&IdentTopic::new(Topic::SUSPICIOUS_PEERS))?;
-                gossip.subscribe(&IdentTopic::new(Topic::LIVENESS))?;
+                gossip.subscribe(&IdentTopic::new(topic::TRANSACTIONS))?;
+                gossip.subscribe(&IdentTopic::new(topic::BLOCKS))?;
+                gossip.subscribe(&IdentTopic::new(topic::OVERLAY_META))?;
+                gossip.subscribe(&IdentTopic::new(topic::PEER_REPUTATION))?;
+                gossip.subscribe(&IdentTopic::new(topic::SUSPICIOUS_PEERS))?;
+                gossip.subscribe(&IdentTopic::new(topic::LIVENESS))?;
 
                 Ok(MyBehaviour {
                     kad,
@@ -196,7 +196,7 @@ impl Rpc for Node {
             RpcAction::Transaction => {
                 let payload = Self::remaining_args(args)?.into_bytes();
                 swarm.behaviour_mut().gossip.publish(
-                    libp2p_gossipsub::IdentTopic::new(Topic::TRANSACTIONS),
+                    libp2p_gossipsub::IdentTopic::new(topic::TRANSACTIONS),
                     payload,
                 )?;
             }
@@ -206,13 +206,13 @@ impl Rpc for Node {
                 swarm
                     .behaviour_mut()
                     .gossip
-                    .publish(libp2p_gossipsub::IdentTopic::new(Topic::BLOCKS), payload)?;
+                    .publish(libp2p_gossipsub::IdentTopic::new(topic::BLOCKS), payload)?;
             }
 
             RpcAction::Metadata => {
                 let payload = Self::arg_parse(args)?.into_bytes();
                 swarm.behaviour_mut().gossip.publish(
-                    libp2p_gossipsub::IdentTopic::new(Topic::OVERLAY_META),
+                    libp2p_gossipsub::IdentTopic::new(topic::OVERLAY_META),
                     payload,
                 )?;
             }
@@ -220,7 +220,7 @@ impl Rpc for Node {
             RpcAction::Reputation => {
                 let payload = Self::arg_parse(args)?.into_bytes();
                 swarm.behaviour_mut().gossip.publish(
-                    libp2p_gossipsub::IdentTopic::new(Topic::PEER_REPUTATION),
+                    libp2p_gossipsub::IdentTopic::new(topic::PEER_REPUTATION),
                     payload,
                 )?;
             }
@@ -228,7 +228,7 @@ impl Rpc for Node {
             RpcAction::Suspicious => {
                 let payload = Self::arg_parse(args)?.into_bytes();
                 swarm.behaviour_mut().gossip.publish(
-                    libp2p_gossipsub::IdentTopic::new(Topic::SUSPICIOUS_PEERS),
+                    libp2p_gossipsub::IdentTopic::new(topic::SUSPICIOUS_PEERS),
                     payload,
                 )?;
             }
@@ -238,7 +238,7 @@ impl Rpc for Node {
                 swarm
                     .behaviour_mut()
                     .gossip
-                    .publish(libp2p_gossipsub::IdentTopic::new(Topic::LIVENESS), payload)?;
+                    .publish(libp2p_gossipsub::IdentTopic::new(topic::LIVENESS), payload)?;
             }
         }
 
