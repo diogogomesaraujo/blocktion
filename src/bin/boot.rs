@@ -16,7 +16,7 @@ const BOOT_NODE_ADDR: &str = "/ip4/127.0.0.1/tcp/63358";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
-    let _ = tracing_subscriber::fmt().try_init()?;
+    tracing_subscriber::fmt().try_init()?;
 
     let node = BootNode::new(BOOT_NODE_ADDR)?;
     let key = Keypair::from_protobuf_encoding(&BOOT_NODE)?;

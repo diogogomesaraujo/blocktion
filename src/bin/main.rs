@@ -13,17 +13,15 @@ const BOOT_NODES: [(&str, &str); 1] = [(
 fn boot_nodes_from_str(
     boot_nodes: &[(&str, &str)],
 ) -> Result<Vec<(Multiaddr, PeerId)>, Box<dyn Error + Send + Sync>> {
-    boot_nodes
-        .into_iter()
-        .try_fold(vec![], |mut acc, (addr, id)| {
-            acc.push((addr.parse::<Multiaddr>()?, id.parse::<PeerId>()?));
-            Ok(acc)
-        })
+    boot_nodes.iter().try_fold(vec![], |mut acc, (addr, id)| {
+        acc.push((addr.parse::<Multiaddr>()?, id.parse::<PeerId>()?));
+        Ok(acc)
+    })
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
-    let _ = tracing_subscriber::fmt().try_init()?;
+    tracing_subscriber::fmt().try_init()?;
 
     let self_key = identity::Keypair::generate_ed25519();
 

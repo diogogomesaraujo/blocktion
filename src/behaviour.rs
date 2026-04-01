@@ -61,7 +61,7 @@ pub struct MyBehaviour {
 pub enum MyBehaviourEvent {
     Kad(kad::Event),
     Ping(ping::Event),
-    Identify(identify::Event),
+    Identify(Box<identify::Event>),
     Gossip(gossipsub::Event),
 }
 
@@ -79,7 +79,7 @@ impl From<ping::Event> for MyBehaviourEvent {
 
 impl From<identify::Event> for MyBehaviourEvent {
     fn from(event: identify::Event) -> Self {
-        Self::Identify(event)
+        Self::Identify(event.into())
     }
 }
 
@@ -227,38 +227,36 @@ impl MyBehaviourEvent {
             }
 
             // should be fixed. only bootstrap once and at most periodically -> as it is is overkill. see slides
-            SwarmEvent::Behaviour(MyBehaviourEvent::Identify(identify::Event::Received {
-                peer_id,
-                info,
-                ..
-            })) => {
-                // TODO(ANTI-IMPERSONATION):
-                // Validate metadata more strictly here.
-                // Later:
-                // - verify signed overlay metadata
-                // - keep persistent trust binding for this PeerId
-                // - validate claimed listen addresses as much as possible
-                //
-                // TODO(ECLIPSE + SYBIL):
-                // Do NOT add every identified peer blindly.
-                // Before insertion, enforce:
-                // - subnet diversity
-                // - per-prefix cap
-                // - identity age preference
-                // - optional costly admission / PoW later
+            SwarmEvent::Behaviour(MyBehaviourEvent::Identify(event)) => {
+                if let identify::Event::Received { peer_id, info, .. } = *event {
+                    // TODO(ANTI-IMPERSONATION):
+                    // Validate metadata more strictly here.
+                    // Later:
+                    // - verify signed overlay metadata
+                    // - keep persistent trust binding for this PeerId
+                    // - validate claimed listen addresses as much as possible
+                    //
+                    // TODO(ECLIPSE + SYBIL):
+                    // Do NOT add every identified peer blindly.
+                    // Before insertion, enforce:
+                    // - subnet diversity
+                    // - per-prefix cap
+                    // - identity age preference
+                    // - optional costly admission / PoW later
 
-                for addr in info.listen_addrs {
-                    swarm.behaviour_mut().kad.add_address(&peer_id, addr);
+                    for addr in info.listen_addrs {
+                        swarm.behaviour_mut().kad.add_address(&peer_id, addr);
+                    }
+
+                    let _ = swarm.behaviour_mut().kad.bootstrap();
+
+                    // TODO(CHURN):
+                    // Bucket refresh should be scheduled deliberately, not triggered on every identify.
+                    // Replace this eager bootstrap with:
+                    // - initial bootstrap once at startup
+                    // - periodic bootstrap / bucket refresh timer
+                    // - refresh stale buckets only when needed
                 }
-
-                let _ = swarm.behaviour_mut().kad.bootstrap();
-
-                // TODO(CHURN):
-                // Bucket refresh should be scheduled deliberately, not triggered on every identify.
-                // Replace this eager bootstrap with:
-                // - initial bootstrap once at startup
-                // - periodic bootstrap / bucket refresh timer
-                // - refresh stale buckets only when needed
             }
 
             SwarmEvent::Behaviour(MyBehaviourEvent::Gossip(gossipsub::Event::Message {
