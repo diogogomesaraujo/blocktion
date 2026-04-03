@@ -1,0 +1,10 @@
+version: "3"
+services:
+  boot:
+    image: p2p-auction
+    environment:
+      - MODE=boot
+  node:
+    image: p2p-auction
+    environment:
+      - MODE=main

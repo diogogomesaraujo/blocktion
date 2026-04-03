@@ -2,6 +2,7 @@ use libp2p::{Multiaddr, PeerId, StreamProtocol, identity};
 use p2p_auction::{node::Node, rpc::Rpc};
 use std::error::Error;
 use tokio::io::{BufReader, stdin};
+use tracing::info;
 
 const IPFS_PROTO_NAME: StreamProtocol = StreamProtocol::new("/p2p-auction/1.0.0");
 
@@ -24,6 +25,8 @@ fn boot_nodes_from_str(
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let _ = tracing_subscriber::fmt().try_init()?;
+
+    info!("Running DHT node.");
 
     let self_key = identity::Keypair::generate_ed25519();
 

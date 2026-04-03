@@ -2,6 +2,7 @@ use libp2p::{StreamProtocol, identity::Keypair};
 use p2p_auction::{boot::BootNode, rpc::Rpc};
 use std::error::Error;
 use tokio::io::{BufReader, stdin};
+use tracing::info;
 
 const IPFS_PROTO_NAME: StreamProtocol = StreamProtocol::new("/p2p-auction/1.0.0");
 
@@ -17,6 +18,8 @@ const BOOT_NODE_ADDR: &str = "/ip4/127.0.0.1/tcp/63358";
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let _ = tracing_subscriber::fmt().try_init()?;
+
+    info!("Running BOOT node.");
 
     let node = BootNode::new(BOOT_NODE_ADDR)?;
     let key = Keypair::from_protobuf_encoding(&BOOT_NODE)?;
