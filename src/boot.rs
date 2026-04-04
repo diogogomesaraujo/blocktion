@@ -81,14 +81,9 @@ impl Rpc for BootNode {
                 kad_cfg.set_replication_factor(K_VALUE);
                 kad_cfg.disjoint_query_paths(true);
                 kad_cfg.set_parallelism(ALPHA_VALUE);
-
-                // TODO(CHURN):
-                // Periodic bootstrap is only one piece.
-                // Still missing:
-                // - bucket refresh of stale ranges
-                // - republish of records
-                // - expiration / refresh policy
-                // - availability strategy under churn
+                kad_cfg.set_provider_record_ttl(Some(Duration::from_secs(48 * 60 * 60)));
+                kad_cfg.set_provider_publication_interval(Some(Duration::from_secs(12 * 60 * 60)));
+                kad_cfg.set_caching(kad::Caching::Enabled { max_peers: 1 });
 
                 let store = kad::store::MemoryStore::new(local_id);
                 let kad = kad::Behaviour::with_config(local_id, store, kad_cfg);

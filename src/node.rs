@@ -39,6 +39,7 @@ pub enum RpcAction {
     FindNode,
     FindValue,
     RoutingTable,
+    ConnectedPeers,
     Transaction,
     Block,
     Metadata,
@@ -64,6 +65,7 @@ impl Rpc for Node {
             "FIND_VALUE" => Some(RpcAction::FindValue),
             "FIND_NODE" => Some(RpcAction::FindNode),
             "ROUTING_TABLE" => Some(RpcAction::RoutingTable),
+            "CONNECTED_PEERS" => Some(RpcAction::ConnectedPeers),
             "GOSSIP_TRANSACTION" => Some(RpcAction::Transaction),
             "GOSSIP_BLOCK" => Some(RpcAction::Block),
             "GOSSIP_META" => Some(RpcAction::Metadata),
@@ -90,7 +92,7 @@ impl Rpc for Node {
             .with_behaviour(|key| {
                 let local_id = key.public().to_peer_id();
 
-                // all default values that can be ommited. explicit for development
+                // most can be ommited but are explicit to facilitate tinkering and fine-tuning
                 let mut kad_cfg = kad::Config::new(ipfs_proto_name.clone());
                 kad_cfg.set_query_timeout(Duration::from_secs(60));
                 kad_cfg.set_periodic_bootstrap_interval(Some(Duration::from_secs(300)));
@@ -99,15 +101,9 @@ impl Rpc for Node {
                 kad_cfg.set_publication_interval(Some(Duration::from_secs(24 * 60 * 60)));
                 kad_cfg.set_replication_factor(K_VALUE);
                 kad_cfg.disjoint_query_paths(true);
-
-                // TODO(CHURN):
-                // Also define / document:
-                // - record TTL / expiration
-                // - republish interval
-                // - bucket refresh interval
-                // - replication factor
-                //
-                // Right now only periodic bootstrap exists, which is not enough.
+                kad_cfg.set_provider_record_ttl(Some(Duration::from_secs(48 * 60 * 60)));
+                kad_cfg.set_provider_publication_interval(Some(Duration::from_secs(12 * 60 * 60)));
+                kad_cfg.set_caching(kad::Caching::Enabled { max_peers: 1 });
 
                 let store = kad::store::MemoryStore::new(local_id);
                 let kad = kad::Behaviour::with_config(local_id, store, kad_cfg);
@@ -243,11 +239,25 @@ impl Rpc for Node {
                 // Later require stronger confidence than "first answer wins".
             }
 
-            RpcAction::RoutingTable => {
+            RpcAction::ConnectedPeers => {
                 info!(
-                    "Current state of the routing table: {:?}",
+                    "Peers that are currently connected: {:?}",
                     swarm.connected_peers().collect::<Vec<&PeerId>>(),
                 );
+            }
+
+            RpcAction::RoutingTable => {
+                let local_key = kad::KBucketKey::from(*swarm.local_peer_id());
+
+                for bucket in swarm.behaviour_mut().kad.kbuckets() {
+                    for entry in bucket.iter() {
+                        println!(
+                            "Peer ID: {:?}, Distance {:?}",
+                            entry.node.key.preimage(),
+                            entry.node.key.distance(&local_key),
+                        );
+                    }
+                }
 
                 // TODO(TRUST + ECLIPSE):
                 // Expose richer diagnostics later:
