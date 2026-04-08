@@ -32,6 +32,12 @@ pub struct PeerRuntimeState {
     pub is_in_routing_table: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PersistentState {
+    pub persistent_value_records: Vec<PersistentValueRecord>,
+    pub persistent_provider_records: Vec<PersistentProviderRecord>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistentValueRecord {
     pub key: Vec<u8>,
@@ -44,12 +50,6 @@ pub struct PersistentValueRecord {
 pub struct PersistentProviderRecord {
     pub key: Vec<u8>,
     pub announced_at_unix: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PersistentState {
-    pub persistent_value_records: Vec<PersistentValueRecord>,
-    pub persistent_provider_records: Vec<PersistentProviderRecord>,
 }
 
 impl State {
