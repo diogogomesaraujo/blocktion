@@ -11,6 +11,28 @@ use std::{
 
 pub const STATE_FILE: &str = "config/node_state.json";
 
+#[derive(Debug, Default)]
+pub struct State {
+    pub persistent: PersistentState,
+    pub peers: HashMap<PeerId, PeerRuntimeState>,
+}
+
+impl State {
+    pub fn load() -> Result<Self> {
+        Ok(Self {
+            persistent: PersistentState::load()?,
+            peers: HashMap::new(),
+        })
+    }
+}
+
+pub fn now_unix() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time before UNIX_EPOCH")
+        .as_secs()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistentValueRecord {
     pub key: Vec<u8>,
@@ -83,26 +105,4 @@ pub struct PeerRuntimeState {
     pub is_routable_candidate: bool,
     pub is_pending_routable: bool,
     pub is_in_routing_table: bool,
-}
-
-#[derive(Debug, Default)]
-pub struct State {
-    pub persistent: PersistentState,
-    pub peers: HashMap<PeerId, PeerRuntimeState>,
-}
-
-impl State {
-    pub fn load() -> Result<Self> {
-        Ok(Self {
-            persistent: PersistentState::load()?,
-            peers: HashMap::new(),
-        })
-    }
-}
-
-pub fn now_unix() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time before UNIX_EPOCH")
-        .as_secs()
 }

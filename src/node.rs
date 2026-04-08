@@ -45,11 +45,11 @@ pub enum RpcAction {
     FindProviders,
     RoutingTable,
     ConnectedPeers,
-    Transaction,
-    Block,
+    // Transaction,
+    // Block,
     Metadata,
-    Reputation,
-    Suspicious,
+    // Reputation,
+    // Suspicious,
     Liveness,
 }
 
@@ -73,11 +73,7 @@ impl Rpc for Node {
             "FIND_PROVIDERS" => Some(RpcAction::FindProviders),
             "ROUTING_TABLE" => Some(RpcAction::RoutingTable),
             "CONNECTED_PEERS" => Some(RpcAction::ConnectedPeers),
-            "GOSSIP_TRANSACTION" => Some(RpcAction::Transaction),
-            "GOSSIP_BLOCK" => Some(RpcAction::Block),
             "GOSSIP_META" => Some(RpcAction::Metadata),
-            "GOSSIP_REPUTATION" => Some(RpcAction::Reputation),
-            "GOSSIP_SUSPICIOUS" => Some(RpcAction::Suspicious),
             "GOSSIP_LIVENESS" => Some(RpcAction::Liveness),
             _ => None,
         }
@@ -267,36 +263,6 @@ impl Rpc for Node {
                 }
             }
 
-            RpcAction::Transaction => {
-                let payload = TransactionAnnouncement {
-                    tx_id: "demo-tx".into(),
-                    origin: runtime.swarm.local_peer_id().to_string(),
-                    timestamp_unix: now_unix(),
-                    summary: Self::remaining_args(args)?,
-                };
-
-                runtime
-                    .swarm
-                    .behaviour_mut()
-                    .gossip
-                    .publish(IdentTopic::new(Topic::TRANSACTIONS), to_vec(&payload)?)?;
-            }
-
-            RpcAction::Block => {
-                let payload = BlockAnnouncement {
-                    block_id: Self::arg_parse(args)?,
-                    height: 0,
-                    origin: runtime.swarm.local_peer_id().to_string(),
-                    timestamp_unix: now_unix(),
-                };
-
-                runtime
-                    .swarm
-                    .behaviour_mut()
-                    .gossip
-                    .publish(IdentTopic::new(Topic::BLOCKS), to_vec(&payload)?)?;
-            }
-
             RpcAction::Metadata => {
                 let payload = OverlayMetadata {
                     peer_id: runtime.swarm.local_peer_id().to_string(),
@@ -310,35 +276,6 @@ impl Rpc for Node {
                     .behaviour_mut()
                     .gossip
                     .publish(IdentTopic::new(Topic::OVERLAY_META), to_vec(&payload)?)?;
-            }
-
-            RpcAction::Reputation => {
-                let payload = ReputationSignal {
-                    observed_peer: Self::arg_parse(args)?,
-                    score_delta: Self::arg_parse(args)?.parse::<i32>()?,
-                    reason: Self::remaining_args(args)?,
-                    reporter: runtime.swarm.local_peer_id().to_string(),
-                };
-
-                runtime
-                    .swarm
-                    .behaviour_mut()
-                    .gossip
-                    .publish(IdentTopic::new(Topic::PEER_REPUTATION), to_vec(&payload)?)?;
-            }
-
-            RpcAction::Suspicious => {
-                let payload = SuspiciousPeerReport {
-                    accused_peer: Self::arg_parse(args)?,
-                    reason: Self::remaining_args(args)?,
-                    reporter: runtime.swarm.local_peer_id().to_string(),
-                };
-
-                runtime
-                    .swarm
-                    .behaviour_mut()
-                    .gossip
-                    .publish(IdentTopic::new(Topic::SUSPICIOUS_PEERS), to_vec(&payload)?)?;
             }
 
             RpcAction::Liveness => {
