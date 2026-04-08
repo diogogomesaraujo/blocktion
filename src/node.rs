@@ -75,7 +75,7 @@ impl Rpc for Node {
         ipfs_proto_name: StreamProtocol,
         key: Keypair,
     ) -> Result<Runtime, Box<dyn Error + Send + Sync>> {
-        let state = State::load()?;
+        let state = State::init()?;
 
         let mut swarm = SwarmBuilder::with_existing_identity(key)
             .with_tokio()
@@ -159,7 +159,7 @@ impl Rpc for Node {
         swarm.listen_on(LISTEN_ON.parse()?)?;
 
         let mut runtime = Runtime::new(swarm, state);
-        runtime.restore_persistent_state()?;
+        runtime.restore_from_local()?;
 
         Ok(runtime)
     }
@@ -198,9 +198,9 @@ impl Rpc for Node {
 
                 runtime
                     .state
-                    .persistent
+                    .local
                     .remember_value_record(key.to_vec(), value, quorum);
-                runtime.state.persistent.save()?;
+                runtime.state.local.save()?;
             }
 
             RpcAction::FindNode => {
@@ -221,11 +221,8 @@ impl Rpc for Node {
                     .kad
                     .start_providing(key.clone())?;
 
-                runtime
-                    .state
-                    .persistent
-                    .remember_provider_record(key.to_vec());
-                runtime.state.persistent.save()?;
+                runtime.state.local.remember_provider_record(key.to_vec());
+                runtime.state.local.save()?;
             }
 
             RpcAction::FindProviders => {

@@ -77,10 +77,10 @@ impl MyBehaviourEvent {
                 let now = now_unix();
 
                 let entry = runtime.state.peers.entry(peer_id).or_default();
-                if entry.first_seen_unix.is_none() {
-                    entry.first_seen_unix = Some(now);
+                if entry.first_seen.is_none() {
+                    entry.first_seen = Some(now);
                 }
-                entry.last_seen_unix = Some(now);
+                entry.last_seen = Some(now);
                 entry.session_count = entry.session_count.saturating_add(1);
 
                 runtime
@@ -109,10 +109,10 @@ impl MyBehaviourEvent {
 
                     let now = now_unix();
                     let entry = runtime.state.peers.entry(peer).or_default();
-                    if entry.first_seen_unix.is_none() {
-                        entry.first_seen_unix = Some(now);
+                    if entry.first_seen.is_none() {
+                        entry.first_seen = Some(now);
                     }
-                    entry.last_seen_unix = Some(now);
+                    entry.last_seen = Some(now);
                     entry.is_in_routing_table = true;
                     entry.is_routable_candidate = true;
 
@@ -128,10 +128,10 @@ impl MyBehaviourEvent {
 
                     let now = now_unix();
                     let entry = runtime.state.peers.entry(peer).or_default();
-                    if entry.first_seen_unix.is_none() {
-                        entry.first_seen_unix = Some(now);
+                    if entry.first_seen.is_none() {
+                        entry.first_seen = Some(now);
                     }
-                    entry.last_seen_unix = Some(now);
+                    entry.last_seen = Some(now);
                     entry.is_routable_candidate = false;
                     entry.is_pending_routable = false;
                 }
@@ -141,10 +141,10 @@ impl MyBehaviourEvent {
 
                     let now = now_unix();
                     let entry = runtime.state.peers.entry(peer).or_default();
-                    if entry.first_seen_unix.is_none() {
-                        entry.first_seen_unix = Some(now);
+                    if entry.first_seen.is_none() {
+                        entry.first_seen = Some(now);
                     }
-                    entry.last_seen_unix = Some(now);
+                    entry.last_seen = Some(now);
                     entry.is_routable_candidate = true;
 
                     runtime
@@ -159,10 +159,10 @@ impl MyBehaviourEvent {
 
                     let now = now_unix();
                     let entry = runtime.state.peers.entry(peer).or_default();
-                    if entry.first_seen_unix.is_none() {
-                        entry.first_seen_unix = Some(now);
+                    if entry.first_seen.is_none() {
+                        entry.first_seen = Some(now);
                     }
-                    entry.last_seen_unix = Some(now);
+                    entry.last_seen = Some(now);
                     entry.is_pending_routable = true;
                 }
 
@@ -260,7 +260,7 @@ impl MyBehaviourEvent {
 
                     let now = now_unix();
                     for peer in runtime.state.peers.values_mut() {
-                        peer.last_successful_kad_response_unix = Some(now);
+                        peer.last_successful_kad_response = Some(now);
                     }
                 }
             },
@@ -273,14 +273,14 @@ impl MyBehaviourEvent {
 
                 let now = now_unix();
                 let entry = runtime.state.peers.entry(event.peer).or_default();
-                if entry.first_seen_unix.is_none() {
-                    entry.first_seen_unix = Some(now);
+                if entry.first_seen.is_none() {
+                    entry.first_seen = Some(now);
                 }
-                entry.last_seen_unix = Some(now);
+                entry.last_seen = Some(now);
 
                 match event.result {
                     Ok(_) => {
-                        entry.last_successful_ping_unix = Some(now);
+                        entry.last_successful_ping = Some(now);
                         entry.successful_pings = entry.successful_pings.saturating_add(1);
                         entry.consecutive_failures = 0;
                     }
@@ -295,10 +295,10 @@ impl MyBehaviourEvent {
                 if let identify::Event::Received { peer_id, info, .. } = *event {
                     let now = now_unix();
                     let entry = runtime.state.peers.entry(peer_id).or_default();
-                    if entry.first_seen_unix.is_none() {
-                        entry.first_seen_unix = Some(now);
+                    if entry.first_seen.is_none() {
+                        entry.first_seen = Some(now);
                     }
-                    entry.last_seen_unix = Some(now);
+                    entry.last_seen = Some(now);
 
                     for addr in info.listen_addrs {
                         runtime

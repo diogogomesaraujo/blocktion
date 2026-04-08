@@ -16,8 +16,8 @@ impl Runtime {
         Self { swarm, state }
     }
 
-    pub fn restore_persistent_state(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        for rec in &self.state.persistent.value_records {
+    pub fn restore_from_local(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        for rec in &self.state.local.value_records {
             let record = Record {
                 key: RecordKey::new(&rec.key),
                 value: rec.value.clone(),
@@ -34,7 +34,7 @@ impl Runtime {
             )?;
         }
 
-        for rec in &self.state.persistent.provider_records {
+        for rec in &self.state.local.provider_records {
             self.swarm
                 .behaviour_mut()
                 .kad

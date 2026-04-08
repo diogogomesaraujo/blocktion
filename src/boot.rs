@@ -51,7 +51,7 @@ impl Rpc for BootNode {
         ipfs_proto_name: StreamProtocol,
         key: Keypair,
     ) -> Result<Runtime, Box<dyn Error + Send + Sync>> {
-        let state = State::load()?;
+        let state = State::init()?;
 
         let mut swarm = SwarmBuilder::with_existing_identity(key)
             .with_tokio()
@@ -128,7 +128,7 @@ impl Rpc for BootNode {
         swarm.listen_on(self.0)?;
 
         let mut runtime = Runtime::new(swarm, state);
-        runtime.restore_persistent_state()?;
+        runtime.restore_from_local()?;
 
         Ok(runtime)
     }
