@@ -1,9 +1,10 @@
 use libp2p::{
-    Swarm, identify,
-    kad::{self, GetRecordOk, PeerRecord, PutRecordOk, QueryResult, Record, store::MemoryStore},
+    identify,
+    kad::{self, GetRecordOk, PeerRecord, Record},
     ping,
     swarm::{NetworkBehaviour, SwarmEvent},
 };
+use serde_json::from_slice;
 use std::error::Error;
 use tracing::{error, info};
 
@@ -15,46 +16,17 @@ use crate::{
         BlockAnnouncement, LivenessSummary, OverlayMetadata, ReputationSignal,
         SuspiciousPeerReport, Topic, TransactionAnnouncement,
     },
+    runtime::Runtime,
+    state::now_unix,
 };
-
-// TODO(TRUST):
-// Add a local trust / reputation structure accessible from event handling.
-// Example later:
-// - reputation_table: HashMap<PeerId, PeerReputation>
-// - suspicion_table: HashMap<PeerId, SuspicionState>
-// - quarantined_peers: HashSet<PeerId>
-// For now this is missing completely.
-//
-// TODO(CHURN):
-// Add local bookkeeping for:
-// - last_seen per peer
-// - last_successful_response per peer
-// - last_record_republish time
-// - bucket refresh timestamps
-//
-// TODO(ECLIPSE + SYBIL):
-// Before accepting peers into the routing table, introduce admission checks:
-// - subnet diversity
-// - per-prefix / per-bucket limits
-// - identity age preference
-// - possibly resource / PoW checks later
 
 #[derive(NetworkBehaviour)]
 #[behaviour(to_swarm = "MyBehaviourEvent")]
 pub struct MyBehaviour {
-    pub kad: kad::Behaviour<MemoryStore>,
+    pub kad: kad::Behaviour<kad::store::MemoryStore>,
     pub ping: ping::Behaviour,
     pub identify: identify::Behaviour,
     pub gossip: gossipsub::Behaviour,
-    // TODO(TRUST):
-    // This behaviour currently has no peer scoring or trust memory.
-    // Later add a custom component / shared state for:
-    // - peer reputation scores
-    // - suspicion counts
-    // - quarantine / blacklist state
-    //
-    // Example direction:
-    // pub trust: TrustManager,
 }
 
 #[derive(Debug)]
@@ -79,7 +51,7 @@ impl From<ping::Event> for MyBehaviourEvent {
 
 impl From<identify::Event> for MyBehaviourEvent {
     fn from(event: identify::Event) -> Self {
-        Self::Identify(event.into())
+        Self::Identify(Box::new(event))
     }
 }
 
@@ -91,125 +63,212 @@ impl From<gossipsub::Event> for MyBehaviourEvent {
 
 impl MyBehaviourEvent {
     pub fn from_event(
-        event: SwarmEvent<Self>,
-        swarm: &mut Swarm<MyBehaviour>,
+        event: SwarmEvent<MyBehaviourEvent>,
+        runtime: &mut Runtime,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         match event {
             SwarmEvent::NewListenAddr { address, .. } => {
-                let config = Config::from(address, *swarm.local_peer_id());
+                let config = Config::from(address, *runtime.swarm.local_peer_id());
                 config.to_file()?;
 
                 info!("Listening on {:?}.", config.address);
-
-                // TODO(ANTI-IMPERSONATION):
-                // Persist local node identity + address binding in a stable local record.
-                // Later use this to sign overlay metadata and maintain peer history across restarts.
             }
 
-            SwarmEvent::Behaviour(MyBehaviourEvent::Kad(kad::Event::RoutingUpdated {
-                peer,
-                addresses,
-                ..
-            })) => {
-                info!("Routing table updated with peer id {peer:?}, and addresses {addresses:?}.");
+            SwarmEvent::ConnectionEstablished {
+                peer_id, endpoint, ..
+            } => {
+                let now = now_unix();
 
-                // TODO(TRUST):
-                // On successful routing-table presence, initialize or update local reputation entry.
-                // Example:
-                // - if first seen -> create default neutral score
-                // - bump "availability" / "responsiveness" if repeatedly useful
-                //
-                // TODO(ECLIPSE):
-                // Do not blindly accept routing updates forever.
-                // Later enforce:
-                // - bucket diversity
-                // - subnet diversity
-                // - max peers per prefix
-                // - prefer long-lived peers over newly seen peers
-            }
-
-            SwarmEvent::Behaviour(MyBehaviourEvent::Kad(kad::Event::OutboundQueryProgressed {
-                result,
-                ..
-            })) => {
-                match result {
-                    QueryResult::GetClosestPeers(Ok(ok)) => {
-                        info!("The current closest peers: {:?}.", ok.peers);
-
-                        // TODO(ECLIPSE + BYZANTINE):
-                        // Lookup results should not be trusted blindly.
-                        // Later:
-                        // - perform multiple disjoint lookups
-                        // - cross-check peers returned by different paths
-                        // - prefer trusted peers when choosing next hop
-                        // - downscore peers that repeatedly return poisoned routing info
-                    }
-
-                    QueryResult::GetClosestPeers(Err(e)) => {
-                        error!("Couldn't find the node at {:?}.", e.key());
-
-                        // TODO(TRUST + CHURN):
-                        // Failed lookups should affect peer availability / trust.
-                        // Later:
-                        // - decrement reputation of peers that timeout or fail repeatedly
-                        // - mark them as temporarily unreliable under churn
-                    }
-
-                    QueryResult::GetRecord(Ok(GetRecordOk::FoundRecord(PeerRecord {
-                        record: Record { key, value, .. },
-                        ..
-                    }))) => {
-                        info!(
-                            "Successfully found value {} at {:?}.",
-                            String::from_utf8(value)?,
-                            key,
-                        );
-
-                        // TODO(BYZANTINE):
-                        // This currently accepts the first returned record.
-                        // Later:
-                        // - compare responses from multiple peers
-                        // - require confidence / quorum for sensitive records
-                        // - validate signatures / hashes where applicable
-                        // - penalize peers that return conflicting or malformed records
-                    }
-
-                    QueryResult::GetRecord(Err(e)) => {
-                        error!("Failed to find value at {:?}.", e.key());
-
-                        // TODO(CHURN):
-                        // Missing records under churn should trigger:
-                        // - retry via alternate peers
-                        // - possible bucket refresh
-                        // - record republish if we are responsible
-                    }
-
-                    QueryResult::PutRecord(Ok(PutRecordOk { key })) => {
-                        info!("Successfully stored the value at {:?}", key);
-
-                        // TODO(CHURN):
-                        // Record storage currently has no replication / expiration lifecycle.
-                        // Later implement:
-                        // - replication factor policy (k replicas or quorum-based)
-                        // - expiration / TTL
-                        // - periodic republish / refresh
-                        // - ownership tracking for records we should republish
-                    }
-
-                    QueryResult::PutRecord(Err(e)) => {
-                        error!("Failed to store the value requested at {:?}.", e.key());
-
-                        // TODO(TRUST + BYZANTINE):
-                        // Store failures should be attributed when possible.
-                        // Later:
-                        // - retry through different peers
-                        // - prefer trusted peers for storage
-                        // - penalize peers that accept then fail or stall repeatedly
-                    }
-
-                    _ => {}
+                let entry = runtime.state.peers.entry(peer_id).or_default();
+                if entry.first_seen_unix.is_none() {
+                    entry.first_seen_unix = Some(now);
                 }
+                entry.last_seen_unix = Some(now);
+                entry.session_count = entry.session_count.saturating_add(1);
+
+                runtime
+                    .swarm
+                    .behaviour_mut()
+                    .kad
+                    .add_address(&peer_id, endpoint.get_remote_address().clone());
             }
+
+            SwarmEvent::Behaviour(MyBehaviourEvent::Kad(event)) => match event {
+                kad::Event::InboundRequest { request } => {
+                    info!("Inbound Kademlia request: {:?}", request);
+                }
+
+                kad::Event::RoutingUpdated {
+                    peer,
+                    is_new_peer,
+                    addresses,
+                    bucket_range,
+                    old_peer,
+                } => {
+                    info!(
+                        "RoutingUpdated peer={peer:?} is_new_peer={is_new_peer} \
+                         addresses={addresses:?} bucket_range={bucket_range:?} old_peer={old_peer:?}"
+                    );
+
+                    let now = now_unix();
+                    let entry = runtime.state.peers.entry(peer).or_default();
+                    if entry.first_seen_unix.is_none() {
+                        entry.first_seen_unix = Some(now);
+                    }
+                    entry.last_seen_unix = Some(now);
+                    entry.is_in_routing_table = true;
+                    entry.is_routable_candidate = true;
+
+                    if let Some(evicted) = old_peer
+                        && let Some(old) = runtime.state.peers.get_mut(&evicted)
+                    {
+                        old.is_in_routing_table = false;
+                    }
+                }
+
+                kad::Event::UnroutablePeer { peer } => {
+                    info!("UnroutablePeer peer={peer:?}");
+
+                    let now = now_unix();
+                    let entry = runtime.state.peers.entry(peer).or_default();
+                    if entry.first_seen_unix.is_none() {
+                        entry.first_seen_unix = Some(now);
+                    }
+                    entry.last_seen_unix = Some(now);
+                    entry.is_routable_candidate = false;
+                    entry.is_pending_routable = false;
+                }
+
+                kad::Event::RoutablePeer { peer, address } => {
+                    info!("RoutablePeer peer={peer:?} address={address:?}");
+
+                    let now = now_unix();
+                    let entry = runtime.state.peers.entry(peer).or_default();
+                    if entry.first_seen_unix.is_none() {
+                        entry.first_seen_unix = Some(now);
+                    }
+                    entry.last_seen_unix = Some(now);
+                    entry.is_routable_candidate = true;
+
+                    runtime
+                        .swarm
+                        .behaviour_mut()
+                        .kad
+                        .add_address(&peer, address);
+                }
+
+                kad::Event::PendingRoutablePeer { peer, address } => {
+                    info!("PendingRoutablePeer peer={peer:?} address={address:?}");
+
+                    let now = now_unix();
+                    let entry = runtime.state.peers.entry(peer).or_default();
+                    if entry.first_seen_unix.is_none() {
+                        entry.first_seen_unix = Some(now);
+                    }
+                    entry.last_seen_unix = Some(now);
+                    entry.is_pending_routable = true;
+                }
+
+                kad::Event::ModeChanged { new_mode } => {
+                    info!("Kademlia mode changed to {:?}", new_mode);
+                }
+
+                kad::Event::OutboundQueryProgressed {
+                    id,
+                    result,
+                    stats,
+                    step,
+                } => {
+                    info!("Kad query id={id:?} stats={stats:?} step={step:?}");
+
+                    match result {
+                        kad::QueryResult::Bootstrap(Ok(ok)) => {
+                            info!("Bootstrap completed: {:?}", ok);
+                        }
+                        kad::QueryResult::Bootstrap(Err(err)) => {
+                            error!("Bootstrap failed: {:?}", err);
+                        }
+
+                        kad::QueryResult::GetClosestPeers(Ok(ok)) => {
+                            info!("Closest peers: {:?}", ok.peers);
+                        }
+                        kad::QueryResult::GetClosestPeers(Err(err)) => {
+                            error!("Couldn't find the node at {:?}.", err.key());
+                        }
+
+                        kad::QueryResult::GetProviders(Ok(ok)) => match ok {
+                            kad::GetProvidersOk::FoundProviders { key, providers } => {
+                                info!("Providers for {:?}: {:?}", key, providers);
+                            }
+                            kad::GetProvidersOk::FinishedWithNoAdditionalRecord {
+                                closest_peers,
+                            } => {
+                                info!(
+                                    "No more providers found. Closest peers: {:?}",
+                                    closest_peers
+                                );
+                            }
+                        },
+                        kad::QueryResult::GetProviders(Err(err)) => {
+                            error!("GetProviders failed: {:?}", err);
+                        }
+
+                        kad::QueryResult::StartProviding(Ok(ok)) => {
+                            info!("Started providing key {:?}", ok.key);
+                        }
+                        kad::QueryResult::StartProviding(Err(err)) => {
+                            error!("StartProviding failed: {:?}", err);
+                        }
+
+                        kad::QueryResult::RepublishProvider(Ok(ok)) => {
+                            info!("Republished provider record for key {:?}", ok.key);
+                        }
+                        kad::QueryResult::RepublishProvider(Err(err)) => {
+                            error!("RepublishProvider failed: {:?}", err);
+                        }
+
+                        kad::QueryResult::GetRecord(Ok(GetRecordOk::FoundRecord(PeerRecord {
+                            record: Record { key, value, .. },
+                            ..
+                        }))) => {
+                            info!(
+                                "Successfully found value {} at {:?}.",
+                                String::from_utf8(value)?,
+                                key,
+                            );
+                        }
+                        kad::QueryResult::GetRecord(Ok(
+                            GetRecordOk::FinishedWithNoAdditionalRecord { .. },
+                        )) => {
+                            info!("GetRecord finished without additional records.");
+                        }
+                        kad::QueryResult::GetRecord(Err(err)) => {
+                            error!("Failed to find value at {:?}.", err.key());
+                        }
+
+                        kad::QueryResult::PutRecord(Ok(ok)) => {
+                            info!("Successfully stored the value at {:?}", ok.key);
+                        }
+                        kad::QueryResult::PutRecord(Err(err)) => {
+                            error!("Failed to store the value requested at {:?}.", err.key());
+                        }
+
+                        kad::QueryResult::RepublishRecord(Ok(ok)) => {
+                            info!("Republished record at {:?}", ok.key);
+                        }
+                        kad::QueryResult::RepublishRecord(Err(err)) => {
+                            error!("RepublishRecord failed: {:?}", err);
+                        }
+
+                        _ => {}
+                    }
+
+                    let now = now_unix();
+                    for peer in runtime.state.peers.values_mut() {
+                        peer.last_successful_kad_response_unix = Some(now);
+                    }
+                }
+            },
 
             SwarmEvent::Behaviour(MyBehaviourEvent::Ping(event)) => {
                 info!(
@@ -217,43 +276,42 @@ impl MyBehaviourEvent {
                     event.connection, event.peer, event.result
                 );
 
-                // TODO(CHURN + TRUST):
-                // Use ping success/failure as one of the main liveness signals.
-                // Later:
-                // - bump score on success
-                // - increment suspicion on repeated failure
-                // - quarantine peers that flap / stall too much
-                // - track last_seen / RTT / availability window
+                let now = now_unix();
+                let entry = runtime.state.peers.entry(event.peer).or_default();
+                if entry.first_seen_unix.is_none() {
+                    entry.first_seen_unix = Some(now);
+                }
+                entry.last_seen_unix = Some(now);
+
+                match event.result {
+                    Ok(_) => {
+                        entry.last_successful_ping_unix = Some(now);
+                        entry.successful_pings = entry.successful_pings.saturating_add(1);
+                        entry.consecutive_failures = 0;
+                    }
+                    Err(_) => {
+                        entry.failed_pings = entry.failed_pings.saturating_add(1);
+                        entry.consecutive_failures = entry.consecutive_failures.saturating_add(1);
+                    }
+                }
             }
 
-            // should be fixed. only bootstrap once and at most periodically -> as it is is overkill. see slides
             SwarmEvent::Behaviour(MyBehaviourEvent::Identify(event)) => {
                 if let identify::Event::Received { peer_id, info, .. } = *event {
-                    // TODO(ANTI-IMPERSONATION):
-                    // Validate metadata more strictly here.
-                    // Later:
-                    // - verify signed overlay metadata
-                    // - keep persistent trust binding for this PeerId
-                    // - validate claimed listen addresses as much as possible
-                    //
-                    // TODO(ECLIPSE + SYBIL):
-                    // Do NOT add every identified peer blindly.
-                    // Before insertion, enforce:
-                    // - subnet diversity
-                    // - per-prefix cap
-                    // - identity age preference
-                    // - optional costly admission / PoW later
+                    let now = now_unix();
+                    let entry = runtime.state.peers.entry(peer_id).or_default();
+                    if entry.first_seen_unix.is_none() {
+                        entry.first_seen_unix = Some(now);
+                    }
+                    entry.last_seen_unix = Some(now);
 
                     for addr in info.listen_addrs {
-                        swarm.behaviour_mut().kad.add_address(&peer_id, addr);
+                        runtime
+                            .swarm
+                            .behaviour_mut()
+                            .kad
+                            .add_address(&peer_id, addr);
                     }
-
-                    // TODO(CHURN):
-                    // Bucket refresh should be scheduled deliberately, not triggered on every identify.
-                    // Replace this eager bootstrap with:
-                    // - initial bootstrap once at startup
-                    // - periodic bootstrap / bucket refresh timer
-                    // - refresh stale buckets only when needed
                 }
             }
 
@@ -269,122 +327,43 @@ impl MyBehaviourEvent {
                     propagation_source, message_id, topic
                 );
 
-                // TODO(TRUST):
-                // Before processing gossip payloads, check whether propagation_source is:
-                // - trusted
-                // - neutral
-                // - suspicious / quarantined
-                // Then decide whether to accept, deprioritize, or ignore the message.
-                //
-                // TODO(LEDGER SUPPORT):
-                // Add anti-spam filtering here:
-                // - drop oversized / malformed payloads
-                // - rate-limit frequent publishers
-                // - require validation hooks per topic
-
                 match topic {
                     Topic::TRANSACTIONS => {
-                        match serde_json::from_slice::<TransactionAnnouncement>(&message.data) {
-                            Ok(msg) => {
-                                info!("Transaction announcement: {:?}", msg);
-
-                                // TODO(LEDGER SUPPORT):
-                                // This is only infrastructure for later ledger layer.
-                                // Add:
-                                // - basic schema validation
-                                // - anti-spam / dedup
-                                // - optional hash/content-addressed indexing hook
-                            }
+                        match from_slice::<TransactionAnnouncement>(&message.data) {
+                            Ok(msg) => info!("Transaction announcement: {:?}", msg),
                             Err(e) => error!("Invalid transaction payload: {e}"),
                         }
                     }
 
-                    Topic::BLOCKS => {
-                        match serde_json::from_slice::<BlockAnnouncement>(&message.data) {
-                            Ok(msg) => {
-                                info!("Block announcement: {:?}", msg);
+                    Topic::BLOCKS => match from_slice::<BlockAnnouncement>(&message.data) {
+                        Ok(msg) => info!("Block announcement: {:?}", msg),
+                        Err(e) => error!("Invalid block payload: {e}"),
+                    },
 
-                                // TODO(LEDGER SUPPORT):
-                                // Add content-addressed lookup hook:
-                                // - announced block hash/id should map to later retrieval
-                                // - keep only overlay-side dissemination logic here
-                            }
-                            Err(e) => error!("Invalid block payload: {e}"),
-                        }
-                    }
+                    Topic::OVERLAY_META => match from_slice::<OverlayMetadata>(&message.data) {
+                        Ok(msg) => info!("Overlay metadata: {:?}", msg),
+                        Err(e) => error!("Invalid overlay metadata payload: {e}"),
+                    },
 
-                    Topic::OVERLAY_META => {
-                        match serde_json::from_slice::<OverlayMetadata>(&message.data) {
-                            Ok(msg) => {
-                                info!("Overlay metadata: {:?}", msg);
-
-                                // TODO(ANTI-IMPERSONATION):
-                                // Overlay metadata should be signed and verified.
-                                // The metadata must be bound to the sender's PeerId.
-                                //
-                                // TODO(TRUST):
-                                // Persist peer metadata history:
-                                // - first seen
-                                // - last seen
-                                // - role changes
-                                // - protocol support consistency
-                            }
-                            Err(e) => error!("Invalid overlay metadata payload: {e}"),
-                        }
-                    }
-
-                    Topic::PEER_REPUTATION => {
-                        match serde_json::from_slice::<ReputationSignal>(&message.data) {
-                            Ok(msg) => {
-                                info!("Peer reputation signal: {:?}", msg);
-
-                                // TODO(TRUST):
-                                // Do not trust remote reputation blindly.
-                                // Later:
-                                // - weight reports by reporter trust
-                                // - apply bounded score deltas
-                                // - prevent gossip-based reputation abuse
-                                // - decay old penalties / rewards over time
-                            }
-                            Err(e) => error!("Invalid reputation payload: {e}"),
-                        }
-                    }
+                    Topic::PEER_REPUTATION => match from_slice::<ReputationSignal>(&message.data) {
+                        Ok(msg) => info!("Peer reputation signal: {:?}", msg),
+                        Err(e) => error!("Invalid reputation payload: {e}"),
+                    },
 
                     Topic::SUSPICIOUS_PEERS => {
-                        match serde_json::from_slice::<SuspiciousPeerReport>(&message.data) {
-                            Ok(msg) => {
-                                info!("Suspicious peer report: {:?}", msg);
-
-                                // TODO(TRUST + BYZANTINE):
-                                // Convert reports into local suspicion tracking only after validation.
-                                // Example later:
-                                // - require repeated independent reports
-                                // - combine with direct local observations
-                                // - quarantine only above threshold
-                            }
+                        match from_slice::<SuspiciousPeerReport>(&message.data) {
+                            Ok(msg) => info!("Suspicious peer report: {:?}", msg),
                             Err(e) => error!("Invalid suspicious-peer payload: {e}"),
                         }
                     }
 
-                    Topic::LIVENESS => {
-                        match serde_json::from_slice::<LivenessSummary>(&message.data) {
-                            Ok(msg) => {
-                                info!("Liveness summary: {:?}", msg);
-
-                                // TODO(CHURN):
-                                // Use liveness summaries as soft signals only.
-                                // They should complement, not replace, direct observations.
-                            }
-                            Err(e) => error!("Invalid liveness payload: {e}"),
-                        }
-                    }
+                    Topic::LIVENESS => match from_slice::<LivenessSummary>(&message.data) {
+                        Ok(msg) => info!("Liveness summary: {:?}", msg),
+                        Err(e) => error!("Invalid liveness payload: {e}"),
+                    },
 
                     _ => {
                         info!("Received message for unknown topic {}", topic);
-
-                        // TODO(ANTI-SPAM):
-                        // Unknown or repeated garbage topics should affect sender reputation
-                        // if this becomes abusive.
                     }
                 }
             }
@@ -394,13 +373,6 @@ impl MyBehaviourEvent {
                 topic,
             })) => {
                 info!("Peer {:?} subscribed to topic {}", peer_id, topic);
-
-                // TODO(TRUST):
-                // Track topic subscriptions as weak metadata.
-                // Useful later for:
-                // - role inference
-                // - spam detection
-                // - peer behaviour profiling
             }
 
             SwarmEvent::Behaviour(MyBehaviourEvent::Gossip(gossipsub::Event::Unsubscribed {
@@ -408,29 +380,6 @@ impl MyBehaviourEvent {
                 topic,
             })) => {
                 info!("Peer {:?} unsubscribed from topic {}", peer_id, topic);
-            }
-
-            SwarmEvent::ConnectionEstablished {
-                peer_id, endpoint, ..
-            } => {
-                // TODO(ECLIPSE + SYBIL):
-                // Connection establishment should not automatically imply routing-table admission.
-                // Before add_address / promotion, apply:
-                // - peer scoring
-                // - diversity constraints
-                // - identity age / stability checks
-                // - optional address ownership validation
-
-                swarm
-                    .behaviour_mut()
-                    .kad
-                    .add_address(&peer_id, endpoint.get_remote_address().clone());
-
-                // TODO(TRUST):
-                // Initialize peer history here:
-                // - first connected at
-                // - connection count
-                // - last successful session
             }
 
             _ => {}

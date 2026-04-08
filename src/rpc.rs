@@ -69,7 +69,7 @@ pub trait Rpc {
                 }
 
                 event = runtime.swarm.select_next_some() => {
-                    MyBehaviourEvent::from_event(event, &mut runtime.swarm)?;
+                    MyBehaviourEvent::from_event(event, runtime)?;
                 }
             }
         }
