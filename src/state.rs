@@ -34,8 +34,8 @@ pub struct PeerRuntimeState {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PersistentState {
-    pub persistent_value_records: Vec<PersistentValueRecord>,
-    pub persistent_provider_records: Vec<PersistentProviderRecord>,
+    pub value_records: Vec<PersistentValueRecord>,
+    pub provider_records: Vec<PersistentProviderRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,8 +81,8 @@ impl PersistentState {
     }
 
     pub fn remember_value_record(&mut self, key: Vec<u8>, value: Vec<u8>, quorum: usize) {
-        self.persistent_value_records.retain(|r| r.key != key);
-        self.persistent_value_records.push(PersistentValueRecord {
+        self.value_records.retain(|r| r.key != key);
+        self.value_records.push(PersistentValueRecord {
             key,
             value,
             quorum,
@@ -91,12 +91,11 @@ impl PersistentState {
     }
 
     pub fn remember_provider_record(&mut self, key: Vec<u8>) {
-        self.persistent_provider_records.retain(|r| r.key != key);
-        self.persistent_provider_records
-            .push(PersistentProviderRecord {
-                key,
-                announced_at_unix: now_unix(),
-            });
+        self.provider_records.retain(|r| r.key != key);
+        self.provider_records.push(PersistentProviderRecord {
+            key,
+            announced_at_unix: now_unix(),
+        });
     }
 }
 
