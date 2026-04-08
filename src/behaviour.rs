@@ -13,7 +13,7 @@ use libp2p_gossipsub::{self as gossipsub};
 use crate::{
     gossip::{
         BlockAnnouncement, LivenessSummary, OverlayMetadata, ReputationSignal,
-        SuspiciousPeerReport, Topic, TransactionAnnouncement,
+        SuspiciousPeerReport, TransactionAnnouncement, topic,
     },
     runtime::Runtime,
     state::now_unix,
@@ -314,50 +314,50 @@ impl MyBehaviourEvent {
                 message_id,
                 message,
             })) => {
-                let topic = message.topic.as_str();
+                let t = message.topic.as_str();
 
                 info!(
                     "Received gossip message from {:?}, id {:?}, topic {}",
-                    propagation_source, message_id, topic
+                    propagation_source, message_id, t
                 );
 
-                match topic {
-                    Topic::TRANSACTIONS => {
+                match t {
+                    topic::TRANSACTIONS => {
                         match from_slice::<TransactionAnnouncement>(&message.data) {
                             Ok(msg) => info!("Transaction announcement: {:?}", msg),
                             Err(e) => error!("Invalid transaction payload: {e}"),
                         }
                     }
 
-                    Topic::BLOCKS => match from_slice::<BlockAnnouncement>(&message.data) {
+                    topic::BLOCKS => match from_slice::<BlockAnnouncement>(&message.data) {
                         Ok(msg) => info!("Block announcement: {:?}", msg),
                         Err(e) => error!("Invalid block payload: {e}"),
                     },
 
-                    Topic::OVERLAY_META => match from_slice::<OverlayMetadata>(&message.data) {
+                    topic::OVERLAY_META => match from_slice::<OverlayMetadata>(&message.data) {
                         Ok(msg) => info!("Overlay metadata: {:?}", msg),
                         Err(e) => error!("Invalid overlay metadata payload: {e}"),
                     },
 
-                    Topic::PEER_REPUTATION => match from_slice::<ReputationSignal>(&message.data) {
+                    topic::PEER_REPUTATION => match from_slice::<ReputationSignal>(&message.data) {
                         Ok(msg) => info!("Peer reputation signal: {:?}", msg),
                         Err(e) => error!("Invalid reputation payload: {e}"),
                     },
 
-                    Topic::SUSPICIOUS_PEERS => {
+                    topic::SUSPICIOUS_PEERS => {
                         match from_slice::<SuspiciousPeerReport>(&message.data) {
                             Ok(msg) => info!("Suspicious peer report: {:?}", msg),
                             Err(e) => error!("Invalid suspicious-peer payload: {e}"),
                         }
                     }
 
-                    Topic::LIVENESS => match from_slice::<LivenessSummary>(&message.data) {
+                    topic::LIVENESS => match from_slice::<LivenessSummary>(&message.data) {
                         Ok(msg) => info!("Liveness summary: {:?}", msg),
                         Err(e) => error!("Invalid liveness payload: {e}"),
                     },
 
                     _ => {
-                        info!("Received message for unknown topic {}", topic);
+                        info!("Received message for unknown topic {}", t);
                     }
                 }
             }

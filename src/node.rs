@@ -1,6 +1,6 @@
 use crate::{
     behaviour::MyBehaviour,
-    gossip::{OverlayMetadata, Topic},
+    gossip::{OverlayMetadata, topic},
     rpc::{LISTEN_ON, Rpc},
     runtime::Runtime,
     state::State,
@@ -131,12 +131,12 @@ impl Rpc for Node {
                     gossip_config,
                 )?;
 
-                gossip.subscribe(&IdentTopic::new(Topic::TRANSACTIONS))?;
-                gossip.subscribe(&IdentTopic::new(Topic::BLOCKS))?;
-                gossip.subscribe(&IdentTopic::new(Topic::OVERLAY_META))?;
-                gossip.subscribe(&IdentTopic::new(Topic::PEER_REPUTATION))?;
-                gossip.subscribe(&IdentTopic::new(Topic::SUSPICIOUS_PEERS))?;
-                gossip.subscribe(&IdentTopic::new(Topic::LIVENESS))?;
+                gossip.subscribe(&IdentTopic::new(topic::TRANSACTIONS))?;
+                gossip.subscribe(&IdentTopic::new(topic::BLOCKS))?;
+                gossip.subscribe(&IdentTopic::new(topic::OVERLAY_META))?;
+                gossip.subscribe(&IdentTopic::new(topic::PEER_REPUTATION))?;
+                gossip.subscribe(&IdentTopic::new(topic::SUSPICIOUS_PEERS))?;
+                gossip.subscribe(&IdentTopic::new(topic::LIVENESS))?;
 
                 Ok(MyBehaviour {
                     kad,
@@ -266,7 +266,7 @@ impl Rpc for Node {
                     .swarm
                     .behaviour_mut()
                     .gossip
-                    .publish(IdentTopic::new(Topic::OVERLAY_META), to_vec(&payload)?)?;
+                    .publish(IdentTopic::new(topic::OVERLAY_META), to_vec(&payload)?)?;
             }
         }
 

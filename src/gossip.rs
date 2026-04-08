@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub struct Topic;
-
-impl Topic {
+pub mod topic {
     pub const TRANSACTIONS: &str = "transactions";
     pub const BLOCKS: &str = "blocks";
     pub const OVERLAY_META: &str = "overlay-meta";
