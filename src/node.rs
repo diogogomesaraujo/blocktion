@@ -45,12 +45,7 @@ pub enum RpcAction {
     FindProviders,
     RoutingTable,
     ConnectedPeers,
-    // Transaction,
-    // Block,
     Metadata,
-    // Reputation,
-    // Suspicious,
-    Liveness,
 }
 
 impl Node {
@@ -74,7 +69,6 @@ impl Rpc for Node {
             "ROUTING_TABLE" => Some(RpcAction::RoutingTable),
             "CONNECTED_PEERS" => Some(RpcAction::ConnectedPeers),
             "GOSSIP_META" => Some(RpcAction::Metadata),
-            "GOSSIP_LIVENESS" => Some(RpcAction::Liveness),
             _ => None,
         }
     }
@@ -168,7 +162,7 @@ impl Rpc for Node {
         swarm.listen_on(LISTEN_ON.parse()?)?;
 
         let mut runtime = Runtime::new(swarm, state);
-        runtime.restore_owned_state()?;
+        runtime.restore_persistent_state()?;
 
         Ok(runtime)
     }
@@ -276,21 +270,6 @@ impl Rpc for Node {
                     .behaviour_mut()
                     .gossip
                     .publish(IdentTopic::new(Topic::OVERLAY_META), to_vec(&payload)?)?;
-            }
-
-            RpcAction::Liveness => {
-                let payload = LivenessSummary {
-                    peer_id: runtime.swarm.local_peer_id().to_string(),
-                    status: "alive".into(),
-                    connected_peers: runtime.swarm.connected_peers().count(),
-                    timestamp_unix: now_unix(),
-                };
-
-                runtime
-                    .swarm
-                    .behaviour_mut()
-                    .gossip
-                    .publish(IdentTopic::new(Topic::LIVENESS), to_vec(&payload)?)?;
             }
         }
 

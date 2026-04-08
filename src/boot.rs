@@ -128,7 +128,7 @@ impl Rpc for BootNode {
         swarm.listen_on(self.0)?;
 
         let mut runtime = Runtime::new(swarm, state);
-        runtime.restore_owned_state()?;
+        runtime.restore_persistent_state()?;
 
         Ok(runtime)
     }
