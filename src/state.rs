@@ -17,20 +17,19 @@ pub struct State {
     pub peers: HashMap<PeerId, PeerRuntimeState>,
 }
 
-impl State {
-    pub fn load() -> Result<Self> {
-        Ok(Self {
-            persistent: PersistentState::load()?,
-            peers: HashMap::new(),
-        })
-    }
-}
-
-pub fn now_unix() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time before UNIX_EPOCH")
-        .as_secs()
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PeerRuntimeState {
+    pub first_seen_unix: Option<u64>,
+    pub last_seen_unix: Option<u64>,
+    pub last_successful_ping_unix: Option<u64>,
+    pub last_successful_kad_response_unix: Option<u64>,
+    pub successful_pings: u32,
+    pub failed_pings: u32,
+    pub consecutive_failures: u32,
+    pub session_count: u32,
+    pub is_routable_candidate: bool,
+    pub is_pending_routable: bool,
+    pub is_in_routing_table: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,6 +50,15 @@ pub struct PersistentProviderRecord {
 pub struct PersistentState {
     pub persistent_value_records: Vec<PersistentValueRecord>,
     pub persistent_provider_records: Vec<PersistentProviderRecord>,
+}
+
+impl State {
+    pub fn load() -> Result<Self> {
+        Ok(Self {
+            persistent: PersistentState::load()?,
+            peers: HashMap::new(),
+        })
+    }
 }
 
 impl PersistentState {
@@ -92,17 +100,9 @@ impl PersistentState {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PeerRuntimeState {
-    pub first_seen_unix: Option<u64>,
-    pub last_seen_unix: Option<u64>,
-    pub last_successful_ping_unix: Option<u64>,
-    pub last_successful_kad_response_unix: Option<u64>,
-    pub successful_pings: u32,
-    pub failed_pings: u32,
-    pub consecutive_failures: u32,
-    pub session_count: u32,
-    pub is_routable_candidate: bool,
-    pub is_pending_routable: bool,
-    pub is_in_routing_table: bool,
+pub fn now_unix() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time before UNIX_EPOCH")
+        .as_secs()
 }
