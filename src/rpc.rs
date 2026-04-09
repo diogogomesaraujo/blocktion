@@ -3,7 +3,7 @@ use libp2p::{StreamProtocol, futures::StreamExt, identity::Keypair};
 use std::{error::Error, str::SplitWhitespace};
 use tokio::io::{AsyncBufReadExt, BufReader, Stdin};
 
-use crate::{behaviour::MyBehaviourEvent, runtime::Runtime};
+use crate::{behaviour::DhtBehaviourEvent, runtime::Runtime};
 
 pub const BOOT_NODE_MULTIADDR: &str = "/dnsaddr/bootstrap.libp2p.io";
 pub const LISTEN_ON: &str = "/ip4/0.0.0.0/tcp/0";
@@ -73,7 +73,7 @@ pub trait Rpc {
                 }
 
                 event = runtime.swarm.select_next_some() => {
-                    MyBehaviourEvent::from_event(event, runtime)?;
+                    DhtBehaviourEvent::from_event(event, runtime)?;
                 }
             }
         }

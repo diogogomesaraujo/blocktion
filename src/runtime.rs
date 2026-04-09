@@ -4,15 +4,15 @@ use libp2p::{
 };
 use std::{error::Error, num::NonZeroUsize};
 
-use crate::{behaviour::MyBehaviour, state::State};
+use crate::{behaviour::DhtBehaviour, state::State};
 
 pub struct Runtime {
-    pub swarm: Swarm<MyBehaviour>,
+    pub swarm: Swarm<DhtBehaviour>,
     pub state: State,
 }
 
 impl Runtime {
-    pub fn new(swarm: Swarm<MyBehaviour>, state: State) -> Self {
+    pub fn new(swarm: Swarm<DhtBehaviour>, state: State) -> Self {
         Self { swarm, state }
     }
 

@@ -5,6 +5,8 @@ use std::{
     io::{Read, Write},
 };
 
+/// Function that tries to get a key from the given path, otherwise it creates an arbitrary key,
+/// creates a file at the given path, stores the key and finally returns it.
 pub fn get_key(path: &str) -> Result<Keypair, Box<dyn Error + Send + Sync>> {
     match key_from_file(path) {
         Ok(key) => Ok(key),
@@ -17,6 +19,7 @@ pub fn get_key(path: &str) -> Result<Keypair, Box<dyn Error + Send + Sync>> {
     }
 }
 
+/// Function that tries to get a key from a file.
 pub fn key_from_file(path: &str) -> Result<Keypair, Box<dyn Error + Send + Sync>> {
     let mut file = File::open(path)?;
 

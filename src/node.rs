@@ -1,5 +1,5 @@
 use crate::{
-    behaviour::MyBehaviour,
+    behaviour::DhtBehaviour,
     gossip::{OverlayMetadata, topic},
     rpc::{LISTEN_ON, Rpc},
     runtime::Runtime,
@@ -138,7 +138,7 @@ impl Rpc for Node {
                 gossip.subscribe(&IdentTopic::new(topic::SUSPICIOUS_PEERS))?;
                 gossip.subscribe(&IdentTopic::new(topic::LIVENESS))?;
 
-                Ok(MyBehaviour {
+                Ok(DhtBehaviour {
                     kad,
                     ping,
                     identify,

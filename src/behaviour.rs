@@ -1,15 +1,3 @@
-use libp2p::{
-    identify,
-    kad::{self, GetRecordOk, PeerRecord, Record},
-    ping,
-    swarm::{NetworkBehaviour, SwarmEvent},
-};
-use serde_json::from_slice;
-use std::error::Error;
-use tracing::{error, info};
-
-use libp2p_gossipsub::{self as gossipsub};
-
 use crate::{
     gossip::{
         BlockAnnouncement, LivenessSummary, OverlayMetadata, ReputationSignal,
@@ -18,51 +6,64 @@ use crate::{
     runtime::Runtime,
     state::now_unix,
 };
+use libp2p::{
+    identify,
+    kad::{self, GetRecordOk, PeerRecord, Record},
+    ping,
+    swarm::{NetworkBehaviour, SwarmEvent},
+};
+use libp2p_gossipsub::{self as gossipsub};
+use serde_json::from_slice;
+use std::error::Error;
+use tracing::{error, info};
 
+/// Struct that represents the `libp2p` primitives used to construct the DHT.
 #[derive(NetworkBehaviour)]
-#[behaviour(to_swarm = "MyBehaviourEvent")]
-pub struct MyBehaviour {
+#[behaviour(to_swarm = "DhtBehaviourEvent")]
+pub struct DhtBehaviour {
     pub kad: kad::Behaviour<kad::store::MemoryStore>,
     pub ping: ping::Behaviour,
     pub identify: identify::Behaviour,
     pub gossip: gossipsub::Behaviour,
 }
 
+/// Struct that represents a DHT event.
 #[derive(Debug)]
-pub enum MyBehaviourEvent {
+pub enum DhtBehaviourEvent {
     Kad(kad::Event),
     Ping(ping::Event),
     Identify(Box<identify::Event>),
     Gossip(gossipsub::Event),
 }
 
-impl From<kad::Event> for MyBehaviourEvent {
+impl From<kad::Event> for DhtBehaviourEvent {
     fn from(event: kad::Event) -> Self {
         Self::Kad(event)
     }
 }
 
-impl From<ping::Event> for MyBehaviourEvent {
+impl From<ping::Event> for DhtBehaviourEvent {
     fn from(event: ping::Event) -> Self {
         Self::Ping(event)
     }
 }
 
-impl From<identify::Event> for MyBehaviourEvent {
+impl From<identify::Event> for DhtBehaviourEvent {
     fn from(event: identify::Event) -> Self {
         Self::Identify(Box::new(event))
     }
 }
 
-impl From<gossipsub::Event> for MyBehaviourEvent {
+impl From<gossipsub::Event> for DhtBehaviourEvent {
     fn from(event: gossipsub::Event) -> Self {
         Self::Gossip(event)
     }
 }
 
-impl MyBehaviourEvent {
+impl DhtBehaviourEvent {
+    /// Function that maps types of events to executable action.
     pub fn from_event(
-        event: SwarmEvent<MyBehaviourEvent>,
+        event: SwarmEvent<DhtBehaviourEvent>,
         runtime: &mut Runtime,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         match event {
@@ -89,7 +90,7 @@ impl MyBehaviourEvent {
                     .add_address(&peer_id, endpoint.get_remote_address().clone());
             }
 
-            SwarmEvent::Behaviour(MyBehaviourEvent::Kad(event)) => match event {
+            SwarmEvent::Behaviour(DhtBehaviourEvent::Kad(event)) => match event {
                 kad::Event::InboundRequest { request } => {
                     info!("Inbound Kademlia request: {:?}", request);
                 }
@@ -264,7 +265,7 @@ impl MyBehaviourEvent {
                 }
             },
 
-            SwarmEvent::Behaviour(MyBehaviourEvent::Ping(event)) => {
+            SwarmEvent::Behaviour(DhtBehaviourEvent::Ping(event)) => {
                 info!(
                     "Ping event: {}, {}, {:?}.",
                     event.connection, event.peer, event.result
@@ -290,7 +291,7 @@ impl MyBehaviourEvent {
                 }
             }
 
-            SwarmEvent::Behaviour(MyBehaviourEvent::Identify(event)) => {
+            SwarmEvent::Behaviour(DhtBehaviourEvent::Identify(event)) => {
                 if let identify::Event::Received { peer_id, info, .. } = *event {
                     let now = now_unix();
                     let entry = runtime.state.peers.entry(peer_id).or_default();
@@ -309,7 +310,7 @@ impl MyBehaviourEvent {
                 }
             }
 
-            SwarmEvent::Behaviour(MyBehaviourEvent::Gossip(gossipsub::Event::Message {
+            SwarmEvent::Behaviour(DhtBehaviourEvent::Gossip(gossipsub::Event::Message {
                 propagation_source,
                 message_id,
                 message,
@@ -362,14 +363,14 @@ impl MyBehaviourEvent {
                 }
             }
 
-            SwarmEvent::Behaviour(MyBehaviourEvent::Gossip(gossipsub::Event::Subscribed {
+            SwarmEvent::Behaviour(DhtBehaviourEvent::Gossip(gossipsub::Event::Subscribed {
                 peer_id,
                 topic,
             })) => {
                 info!("Peer {:?} subscribed to topic {}", peer_id, topic);
             }
 
-            SwarmEvent::Behaviour(MyBehaviourEvent::Gossip(gossipsub::Event::Unsubscribed {
+            SwarmEvent::Behaviour(DhtBehaviourEvent::Gossip(gossipsub::Event::Unsubscribed {
                 peer_id,
                 topic,
             })) => {
