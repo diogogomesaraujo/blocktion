@@ -1,9 +1,11 @@
 version: "3"
+
 services:
   boot:
     image: p2p-auction
     environment:
       - MODE=boot
+      - ARGS=--key-path config/boot1 --port 63358
     networks:
       - p2p-net
   node:
@@ -14,9 +16,9 @@ services:
         restart: true
     environment:
       - MODE=main
+      - ARGS=--key-path config/node1
     networks:
       - p2p-net
-    scale: 6
 
 networks:
   p2p-net:
