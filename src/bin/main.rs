@@ -7,7 +7,7 @@ use tokio::io::{BufReader, stdin};
 const IPFS_PROTO_NAME: StreamProtocol = StreamProtocol::new("/p2p-auction/1.0.0");
 
 const BOOT_NODES: [(&str, &str); 1] = [(
-    "/ip4/172.20.0.2/tcp/63358",
+    "/ip4/10.0.0.2/tcp/63358",
     "12D3KooWPJTsznbE7Axq6yXzTcFirB5DVU221mfR1q3eAeRziCWt",
 )];
 

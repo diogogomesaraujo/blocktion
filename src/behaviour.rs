@@ -58,7 +58,7 @@ impl From<gossipsub::Event> for DhtBehaviourEvent {
 }
 
 impl DhtBehaviourEvent {
-    /// Function that maps types of events to executable action.
+    /// Function that maps types of events to executable actions.
     pub fn from_event(
         event: SwarmEvent<DhtBehaviourEvent>,
         runtime: &mut Runtime,

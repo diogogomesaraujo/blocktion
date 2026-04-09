@@ -7,7 +7,9 @@ services:
       - MODE=boot
       - ARGS=--key-path config/boot1 --port 63358
     networks:
-      - p2p-net
+      p2p-net:
+        ipv4_address: 10.0.0.2
+
   node_1:
     image: p2p-auction
     depends_on:
@@ -45,3 +47,7 @@ services:
 networks:
   p2p-net:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 10.0.0.0/24
+          gateway: 10.0.0.1
