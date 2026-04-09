@@ -133,7 +133,7 @@ impl Rpc for Node {
 
                 gossip.subscribe(&IdentTopic::new(topic::TRANSACTIONS))?;
                 gossip.subscribe(&IdentTopic::new(topic::BLOCKS))?;
-                gossip.subscribe(&IdentTopic::new(topic::OVERLAY_META))?;
+                gossip.subscribe(&IdentTopic::new(topic::METADATA))?;
                 gossip.subscribe(&IdentTopic::new(topic::PEER_REPUTATION))?;
                 gossip.subscribe(&IdentTopic::new(topic::SUSPICIOUS_PEERS))?;
                 gossip.subscribe(&IdentTopic::new(topic::LIVENESS))?;
@@ -263,7 +263,7 @@ impl Rpc for Node {
                     .swarm
                     .behaviour_mut()
                     .gossip
-                    .publish(IdentTopic::new(topic::OVERLAY_META), to_vec(&payload)?)?;
+                    .publish(IdentTopic::new(topic::METADATA), to_vec(&payload)?)?;
             }
         }
 

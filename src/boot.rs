@@ -110,7 +110,7 @@ impl Rpc for BootNode {
 
                 gossip.subscribe(&IdentTopic::new(topic::TRANSACTIONS))?;
                 gossip.subscribe(&IdentTopic::new(topic::BLOCKS))?;
-                gossip.subscribe(&IdentTopic::new(topic::OVERLAY_META))?;
+                gossip.subscribe(&IdentTopic::new(topic::METADATA))?;
                 gossip.subscribe(&IdentTopic::new(topic::PEER_REPUTATION))?;
                 gossip.subscribe(&IdentTopic::new(topic::SUSPICIOUS_PEERS))?;
                 gossip.subscribe(&IdentTopic::new(topic::LIVENESS))?;

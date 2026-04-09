@@ -320,7 +320,7 @@ impl DhtBehaviourEvent {
                 );
 
                 match t {
-                    topic::OVERLAY_META => match from_slice::<Metadata>(&message.data) {
+                    topic::METADATA => match from_slice::<Metadata>(&message.data) {
                         Ok(msg) => info!("Overlay metadata: {:?}", msg),
                         Err(e) => error!("Invalid overlay metadata payload: {e}"),
                     },
