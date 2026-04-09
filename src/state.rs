@@ -9,20 +9,20 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-pub const STATE_FILE: &str = "config/node_state.json";
+pub const STATE_FILE: &str = "config/local.json";
 
 #[derive(Debug, Default)]
 pub struct State {
-    pub persistent: PersistentState,
-    pub peers: HashMap<PeerId, PeerRuntimeState>,
+    pub local: Local,
+    pub peers: HashMap<PeerId, PeerInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PeerRuntimeState {
-    pub first_seen_unix: Option<u64>,
-    pub last_seen_unix: Option<u64>,
-    pub last_successful_ping_unix: Option<u64>,
-    pub last_successful_kad_response_unix: Option<u64>,
+pub struct PeerInfo {
+    pub first_seen: Option<u64>,
+    pub last_seen: Option<u64>,
+    pub last_successful_ping: Option<u64>,
+    pub last_successful_kad_response: Option<u64>,
     pub successful_pings: u32,
     pub failed_pings: u32,
     pub consecutive_failures: u32,
@@ -33,35 +33,35 @@ pub struct PeerRuntimeState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PersistentState {
-    pub value_records: Vec<PersistentValueRecord>,
-    pub provider_records: Vec<PersistentProviderRecord>,
+pub struct Local {
+    pub value_records: Vec<ValueRecord>,
+    pub provider_records: Vec<ProviderRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PersistentValueRecord {
+pub struct ValueRecord {
     pub key: Vec<u8>,
     pub value: Vec<u8>,
     pub quorum: usize,
-    pub created_at_unix: u64,
+    pub created_at: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PersistentProviderRecord {
+pub struct ProviderRecord {
     pub key: Vec<u8>,
-    pub announced_at_unix: u64,
+    pub announced_at: u64,
 }
 
 impl State {
-    pub fn load() -> Result<Self> {
+    pub fn init() -> Result<Self> {
         Ok(Self {
-            persistent: PersistentState::load()?,
+            local: Local::load()?,
             peers: HashMap::new(),
         })
     }
 }
 
-impl PersistentState {
+impl Local {
     pub fn load() -> Result<Self> {
         if !Path::new(STATE_FILE).exists() {
             return Ok(Self::default());
@@ -82,19 +82,19 @@ impl PersistentState {
 
     pub fn remember_value_record(&mut self, key: Vec<u8>, value: Vec<u8>, quorum: usize) {
         self.value_records.retain(|r| r.key != key);
-        self.value_records.push(PersistentValueRecord {
+        self.value_records.push(ValueRecord {
             key,
             value,
             quorum,
-            created_at_unix: now_unix(),
+            created_at: now_unix(),
         });
     }
 
     pub fn remember_provider_record(&mut self, key: Vec<u8>) {
         self.provider_records.retain(|r| r.key != key);
-        self.provider_records.push(PersistentProviderRecord {
+        self.provider_records.push(ProviderRecord {
             key,
-            announced_at_unix: now_unix(),
+            announced_at: now_unix(),
         });
     }
 }

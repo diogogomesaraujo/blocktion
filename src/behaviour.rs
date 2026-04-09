@@ -1,8 +1,5 @@
 use crate::{
-    gossip::{
-        BlockAnnouncement, LivenessSummary, OverlayMetadata, ReputationSignal,
-        SuspiciousPeerReport, TransactionAnnouncement, topic,
-    },
+    gossip::{OverlayMetadata, topic},
     runtime::Runtime,
     state::now_unix,
 };
@@ -77,10 +74,10 @@ impl DhtBehaviourEvent {
                 let now = now_unix();
 
                 let entry = runtime.state.peers.entry(peer_id).or_default();
-                if entry.first_seen_unix.is_none() {
-                    entry.first_seen_unix = Some(now);
+                if entry.first_seen.is_none() {
+                    entry.first_seen = Some(now);
                 }
-                entry.last_seen_unix = Some(now);
+                entry.last_seen = Some(now);
                 entry.session_count = entry.session_count.saturating_add(1);
 
                 runtime
@@ -109,10 +106,10 @@ impl DhtBehaviourEvent {
 
                     let now = now_unix();
                     let entry = runtime.state.peers.entry(peer).or_default();
-                    if entry.first_seen_unix.is_none() {
-                        entry.first_seen_unix = Some(now);
+                    if entry.first_seen.is_none() {
+                        entry.first_seen = Some(now);
                     }
-                    entry.last_seen_unix = Some(now);
+                    entry.last_seen = Some(now);
                     entry.is_in_routing_table = true;
                     entry.is_routable_candidate = true;
 
@@ -128,10 +125,10 @@ impl DhtBehaviourEvent {
 
                     let now = now_unix();
                     let entry = runtime.state.peers.entry(peer).or_default();
-                    if entry.first_seen_unix.is_none() {
-                        entry.first_seen_unix = Some(now);
+                    if entry.first_seen.is_none() {
+                        entry.first_seen = Some(now);
                     }
-                    entry.last_seen_unix = Some(now);
+                    entry.last_seen = Some(now);
                     entry.is_routable_candidate = false;
                     entry.is_pending_routable = false;
                 }
@@ -141,10 +138,10 @@ impl DhtBehaviourEvent {
 
                     let now = now_unix();
                     let entry = runtime.state.peers.entry(peer).or_default();
-                    if entry.first_seen_unix.is_none() {
-                        entry.first_seen_unix = Some(now);
+                    if entry.first_seen.is_none() {
+                        entry.first_seen = Some(now);
                     }
-                    entry.last_seen_unix = Some(now);
+                    entry.last_seen = Some(now);
                     entry.is_routable_candidate = true;
 
                     runtime
@@ -159,10 +156,10 @@ impl DhtBehaviourEvent {
 
                     let now = now_unix();
                     let entry = runtime.state.peers.entry(peer).or_default();
-                    if entry.first_seen_unix.is_none() {
-                        entry.first_seen_unix = Some(now);
+                    if entry.first_seen.is_none() {
+                        entry.first_seen = Some(now);
                     }
-                    entry.last_seen_unix = Some(now);
+                    entry.last_seen = Some(now);
                     entry.is_pending_routable = true;
                 }
 
@@ -260,7 +257,7 @@ impl DhtBehaviourEvent {
 
                     let now = now_unix();
                     for peer in runtime.state.peers.values_mut() {
-                        peer.last_successful_kad_response_unix = Some(now);
+                        peer.last_successful_kad_response = Some(now);
                     }
                 }
             },
@@ -273,14 +270,14 @@ impl DhtBehaviourEvent {
 
                 let now = now_unix();
                 let entry = runtime.state.peers.entry(event.peer).or_default();
-                if entry.first_seen_unix.is_none() {
-                    entry.first_seen_unix = Some(now);
+                if entry.first_seen.is_none() {
+                    entry.first_seen = Some(now);
                 }
-                entry.last_seen_unix = Some(now);
+                entry.last_seen = Some(now);
 
                 match event.result {
                     Ok(_) => {
-                        entry.last_successful_ping_unix = Some(now);
+                        entry.last_successful_ping = Some(now);
                         entry.successful_pings = entry.successful_pings.saturating_add(1);
                         entry.consecutive_failures = 0;
                     }
@@ -295,10 +292,10 @@ impl DhtBehaviourEvent {
                 if let identify::Event::Received { peer_id, info, .. } = *event {
                     let now = now_unix();
                     let entry = runtime.state.peers.entry(peer_id).or_default();
-                    if entry.first_seen_unix.is_none() {
-                        entry.first_seen_unix = Some(now);
+                    if entry.first_seen.is_none() {
+                        entry.first_seen = Some(now);
                     }
-                    entry.last_seen_unix = Some(now);
+                    entry.last_seen = Some(now);
 
                     for addr in info.listen_addrs {
                         runtime
@@ -323,40 +320,10 @@ impl DhtBehaviourEvent {
                 );
 
                 match t {
-                    topic::TRANSACTIONS => {
-                        match from_slice::<TransactionAnnouncement>(&message.data) {
-                            Ok(msg) => info!("Transaction announcement: {:?}", msg),
-                            Err(e) => error!("Invalid transaction payload: {e}"),
-                        }
-                    }
-
-                    topic::BLOCKS => match from_slice::<BlockAnnouncement>(&message.data) {
-                        Ok(msg) => info!("Block announcement: {:?}", msg),
-                        Err(e) => error!("Invalid block payload: {e}"),
-                    },
-
                     topic::OVERLAY_META => match from_slice::<OverlayMetadata>(&message.data) {
                         Ok(msg) => info!("Overlay metadata: {:?}", msg),
                         Err(e) => error!("Invalid overlay metadata payload: {e}"),
                     },
-
-                    topic::PEER_REPUTATION => match from_slice::<ReputationSignal>(&message.data) {
-                        Ok(msg) => info!("Peer reputation signal: {:?}", msg),
-                        Err(e) => error!("Invalid reputation payload: {e}"),
-                    },
-
-                    topic::SUSPICIOUS_PEERS => {
-                        match from_slice::<SuspiciousPeerReport>(&message.data) {
-                            Ok(msg) => info!("Suspicious peer report: {:?}", msg),
-                            Err(e) => error!("Invalid suspicious-peer payload: {e}"),
-                        }
-                    }
-
-                    topic::LIVENESS => match from_slice::<LivenessSummary>(&message.data) {
-                        Ok(msg) => info!("Liveness summary: {:?}", msg),
-                        Err(e) => error!("Invalid liveness payload: {e}"),
-                    },
-
                     _ => {
                         info!("Received message for unknown topic {}", t);
                     }
