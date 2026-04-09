@@ -159,7 +159,7 @@ impl Rpc for Node {
         swarm.listen_on(LISTEN_ON.parse()?)?;
 
         let mut runtime = Runtime::new(swarm, state);
-        runtime.restore_from_local()?;
+        runtime.load_from_local()?;
 
         Ok(runtime)
     }

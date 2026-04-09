@@ -328,6 +328,7 @@ impl MyBehaviourEvent {
                         Err(e) => error!("Invalid overlay metadata payload: {e}"),
                     },
 
+                    // different topics to be added later to handle trust, blockchain, liveness, etc.
                     _ => {
                         info!("Received message for unknown topic {}", topic);
                     }

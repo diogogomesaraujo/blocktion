@@ -16,7 +16,7 @@ impl Runtime {
         Self { swarm, state }
     }
 
-    pub fn restore_from_local(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub fn load_from_local(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         for rec in &self.state.local.value_records {
             let record = Record {
                 key: RecordKey::new(&rec.key),
