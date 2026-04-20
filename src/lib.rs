@@ -1,4 +1,5 @@
 pub mod behaviour;
+pub mod blockchain;
 pub mod boot;
 pub mod gossip;
 pub mod key;

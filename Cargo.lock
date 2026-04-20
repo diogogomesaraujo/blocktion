@@ -2142,6 +2142,7 @@ name = "p2p-auction"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "blake2",
  "chrono",
  "clap",
  "hex",
