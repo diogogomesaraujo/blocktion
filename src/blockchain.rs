@@ -1,3 +1,4 @@
+use crate::time::now_unix;
 use blake2::Blake2b512;
 use std::error::Error;
 
@@ -64,7 +65,7 @@ pub struct Block {
     pub data: String,
     pub hash: String,
     pub nonce: u32,
-    pub timestamp: u32,
+    pub timestamp: u64,
 }
 
 impl Block {
@@ -74,16 +75,17 @@ impl Block {
         data: String,
         difficulty: u32,
         hasher: HashFunction,
-    ) -> Self {
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let p = pow::ProofOfWork { data, difficulty };
         let (h, nonce) = pow::mine(&p, hasher);
-        Block {
+        Ok(Block {
             index,
             previous_hash,
             data: p.data,
             hash: h,
+            timestamp: now_unix()?,
             nonce,
-        }
+        })
     }
 }
 
@@ -93,7 +95,10 @@ pub struct Blockchain {
 }
 
 impl Blockchain {
-    pub fn new(difficulty: u32, hasher: HashFunction) -> Self {
+    pub fn new(
+        difficulty: u32,
+        hasher: HashFunction,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let genesis_block = Block::new(
             0,
             String::new(),
@@ -101,10 +106,10 @@ impl Blockchain {
             difficulty,
             hasher,
         );
-        return Self {
+        Ok(Self {
             difficulty,
-            blocks: vec![genesis_block],
-        };
+            blocks: vec![genesis_block?],
+        })
     }
 
     pub fn add_block(
@@ -122,7 +127,7 @@ impl Blockchain {
             data.to_string(),
             self.difficulty,
             hasher,
-        ));
+        )?);
         Ok(())
     }
 }
