@@ -1,4 +1,3 @@
-use crate::time::now_unix;
 use blake2::Blake2b512;
 use std::error::Error;
 
@@ -13,15 +12,19 @@ pub mod hash {
     use crate::blockchain::HashFunction;
     use blake2::Digest;
 
-    pub fn hash(mut h: HashFunction, data: &str) -> String {
+    pub fn hash(mut h: HashFunction, data: &str) -> Vec<u8> {
         h.update(data.as_bytes());
         let bytes = h.finalize().to_vec();
+        bytes
+    }
+
+    pub fn encode_hash(bytes: &[u8]) -> String {
         hex::encode(bytes)
     }
 
     #[cfg(test)]
     pub mod test {
-        use crate::blockchain::hash::hash;
+        use crate::blockchain::hash::{encode_hash, hash};
         use blake2::{Blake2b512, Digest};
 
         #[test]
@@ -30,7 +33,7 @@ pub mod hash {
             let hashed = hash(Blake2b512::new(), to_hash);
 
             assert_eq!(
-                hashed,
+                encode_hash(&hashed),
                 "3a141d45dea6b8af5bab5f942d88f3c0d48edcda84fac341d821d13d65896e2a7d5a8ec921da654301e72db33631fd94963e064056172f4d970a77625aa7ed93"
             );
         }
@@ -38,49 +41,50 @@ pub mod hash {
 }
 
 pub mod pow {
-    use crate::blockchain::{HashFunction, hash};
+    use crate::{
+        blockchain::{HashFunction, hash},
+        time::now_unix,
+    };
+    use blake2::Digest;
+    use std::error::Error;
     use tracing::info;
 
     const LOG_MINERATION: u32 = 100000;
+    const TARGET: &[u8] = &[
+        0, 0, 0x0F, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0,
+    ];
 
     pub struct ProofOfWork {
         pub data: String,
         pub difficulty: u32,
     }
 
-    // todo: refactor
-    pub fn mine(pow: &ProofOfWork, hasher: &HashFunction) -> (String, u32) {
-        let prefix = [0..pow.difficulty]
-            .iter()
-            .fold(String::new(), |acc, _| [acc, String::from("0")].join(""));
+    pub fn mine(
+        pow: &ProofOfWork,
+        previous_hash: &str,
+    ) -> Result<(String, u32, u64), Box<dyn Error + Send + Sync>> {
+        loop {
+            let timestamp = now_unix()?;
 
-        fn mine_rec(
-            pow: &ProofOfWork,
-            hasher: &HashFunction,
-            nonce: u32,
-            prefix: &str,
-        ) -> (String, u32) {
-            if nonce % LOG_MINERATION == 0 {
-                info!("Still mining. The current nonce value is: {}.", nonce);
+            for nonce in 0..pow.difficulty {
+                if nonce % LOG_MINERATION == 0 {
+                    info!("Still mining. The current nonce value is: {}.", nonce);
+                }
+
+                let input = format!("{}:{}:{}:{}", previous_hash, pow.data, nonce, timestamp);
+                let h = hash::hash(HashFunction::new(), &input);
+
+                if h.as_slice() < TARGET {
+                    return Ok((hex::encode(h), nonce, timestamp));
+                }
             }
-
-            let input = format!("{}:{}", pow.data, nonce);
-            let h = hash::hash(hasher.clone(), &input);
-
-            if let Some(_) = h.strip_prefix(&prefix) {
-                return (h, nonce);
-            }
-
-            mine_rec(pow, hasher, nonce + 1, prefix)
         }
-
-        mine_rec(&pow, hasher, 0, &prefix)
     }
 }
 
 #[derive(Debug)]
 pub struct Block {
-    pub index: u32,
     pub previous_hash: String,
     pub data: String,
     pub hash: String,
@@ -90,20 +94,21 @@ pub struct Block {
 
 impl Block {
     pub fn new(
-        index: u32,
-        previous_hash: String,
+        previous_hash: Option<String>,
         data: String,
         difficulty: u32,
-        hasher: &HashFunction,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        let previous_hash = match previous_hash {
+            Some(ph) => ph,
+            None => "0".to_string(),
+        };
         let p = pow::ProofOfWork { data, difficulty };
-        let (h, nonce) = pow::mine(&p, hasher);
+        let (h, nonce, timestamp) = pow::mine(&p, &previous_hash)?;
         Ok(Block {
-            index,
             previous_hash,
             data: p.data,
             hash: h,
-            timestamp: now_unix()?,
+            timestamp,
             nonce,
         })
     }
@@ -116,38 +121,22 @@ pub struct Blockchain {
 }
 
 impl Blockchain {
-    pub fn new(
-        difficulty: u32,
-        hasher: &HashFunction,
-    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        let genesis_block = Block::new(
-            0,
-            String::new(),
-            String::from("Genesis Block"),
-            difficulty,
-            hasher,
-        );
+    pub fn new(difficulty: u32) -> Result<Self, Box<dyn Error + Send + Sync>> {
         Ok(Self {
             difficulty,
-            blocks: vec![genesis_block?],
+            blocks: vec![],
         })
     }
 
-    pub fn add_block(
-        &mut self,
-        data: &str,
-        hasher: &HashFunction,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let previous_block = match self.blocks.last() {
-            Some(pb) => pb,
-            None => return Err("Invalid state: The blockchain is empty.".into()),
+    pub fn add_block(&mut self, data: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let previous_block_hash = match self.blocks.last() {
+            Some(pb) => Some(pb.hash.clone()),
+            None => None,
         };
         self.blocks.push(Block::new(
-            previous_block.index + 1,
-            previous_block.hash.clone(),
+            previous_block_hash,
             data.to_string(),
             self.difficulty,
-            hasher,
         )?);
         Ok(())
     }
@@ -158,19 +147,22 @@ pub mod test {
     use std::error::Error;
 
     use crate::blockchain::Blockchain;
-    use blake2::{Blake2b512, Digest};
 
     #[test]
-    fn test_blockchain() -> Result<(), Box<dyn Error + Send + Sync>> {
-        let h = Blake2b512::new();
-        let mut blockchain = Blockchain::new(u32::MAX, &h)?;
+    fn test_blockchain_nonces() -> Result<(), Box<dyn Error + Send + Sync>> {
+        let mut blockchain = Blockchain::new(u32::MAX)?;
 
-        blockchain.add_block("First Block", &h)?;
-        blockchain.add_block("Second Block", &h)?;
-        blockchain.add_block("Third Block", &h)?;
-        blockchain.add_block("Fourth Block", &h)?;
-
-        println!("{:?}", blockchain);
+        for n in 0..2 {
+            blockchain.add_block(&format!("{n}"))?;
+        }
+        println!(
+            "{:?}",
+            blockchain
+                .blocks
+                .into_iter()
+                .map(|b| b.nonce)
+                .collect::<Vec<u32>>()
+        );
 
         Ok(())
     }
