@@ -1,12 +1,13 @@
+use crate::time::now_unix;
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_slice, to_vec_pretty};
 use std::{
     collections::HashMap,
+    error::Error,
     fs::{create_dir_all, read, write},
-    io::{self, Error, ErrorKind, Result},
+    io::{self},
     path::Path,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 pub const STATE_FILE: &str = "config/local.json";
@@ -62,13 +63,13 @@ impl State {
 }
 
 impl Local {
-    pub fn load() -> Result<Self> {
+    pub fn load() -> Result<Self, Box<dyn Error + Send + Sync>> {
         if !Path::new(STATE_FILE).exists() {
             return Ok(Self::default());
         }
 
         let bytes = read(STATE_FILE)?;
-        from_slice(&bytes).map_err(|e| Error::new(ErrorKind::InvalidData, e))
+        Ok(from_slice(&bytes)?)
     }
 
     pub fn save(&self) -> Result<()> {
@@ -80,28 +81,30 @@ impl Local {
         write(STATE_FILE, bytes)
     }
 
-    pub fn remember_value_record(&mut self, key: Vec<u8>, value: Vec<u8>, quorum: usize) {
+    pub fn remember_value_record(
+        &mut self,
+        key: Vec<u8>,
+        value: Vec<u8>,
+        quorum: usize,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.value_records.retain(|r| r.key != key);
         self.value_records.push(ValueRecord {
             key,
             value,
             quorum,
-            created_at: now_unix(),
+            created_at: now_unix()?,
         });
+        Ok(())
     }
 
-    pub fn remember_provider_record(&mut self, key: Vec<u8>) {
+    pub fn remember_provider_record(
+        &mut self,
+        key: Vec<u8>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.provider_records.retain(|r| r.key != key);
         self.provider_records.push(ProviderRecord {
             key,
-            announced_at: now_unix(),
+            announced_at: now_unix()?,
         });
     }
-}
-
-pub fn now_unix() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time before UNIX_EPOCH")
-        .as_secs()
 }

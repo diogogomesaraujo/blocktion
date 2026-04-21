@@ -7,5 +7,6 @@ pub mod node;
 pub mod rpc;
 pub mod runtime;
 pub mod state;
+pub mod time;
 
 pub const CONFIG_DIR: &str = "config";
