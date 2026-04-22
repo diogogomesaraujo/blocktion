@@ -160,12 +160,6 @@ pub mod account {
 
         // like smart contract in etherium -> might not need
         Contract,
-
-        /// whatever roles we will need
-        Validator {
-            correctly_validated_blocks: u128,
-            incorrectly_validated_blocks: u128,
-        },
     }
 
     impl Account {
