@@ -6,8 +6,9 @@
 //! - [Simple PoW Implementation in Rust](https://hackernoon.com/rusty-chains-a-basic-blockchain-implementation-written-in-pure-rust-gk2m3uri)
 //! - [Bitcoin Protocol Specification](https://en.bitcoin.it/wiki/Protocol_documentation#Block_Headers)
 
-use crate::blockchain::{account::Account, transaction::Transaction};
-use blake2::Blake2b512;
+use crate::blockchain::{account::Account, hash::encode_hash, transaction::Transaction};
+use blake2::{Blake2b512, Digest};
+use serde::{Deserialize, Serialize};
 use std::error::Error;
 
 /// Type that defines the hash-function chosen to compute the hashes that will form the blockchain.
@@ -52,10 +53,9 @@ pub mod hash {
 
 pub mod pow {
     use crate::{
-        blockchain::{HashFunction, hash, transaction::Transaction},
+        blockchain::{UnsignedBlock, transaction::Transaction},
         time::now_unix,
     };
-    use blake2::Digest;
     use std::error::Error;
     use tracing::info;
 
@@ -88,14 +88,10 @@ pub mod pow {
                     info!("Still mining. The current nonce value is: {}.", nonce);
                 }
 
-                let input = format!(
-                    "{}:{}:{}:{}",
-                    previous_hash,
-                    serde_json::to_string(&pow.transactions)?,
-                    nonce,
-                    timestamp
-                );
-                let h = hash::hash(HashFunction::new(), &input);
+                let unsigned_block =
+                    UnsignedBlock::new(previous_hash, pow.transactions.clone(), nonce, timestamp);
+
+                let h = unsigned_block.hash()?;
 
                 if h.as_slice() < TARGET {
                     return Ok((hex::encode(h), nonce, timestamp));
@@ -190,8 +186,42 @@ pub trait State {
     fn create_account(&mut self, id: String, kind: account::Kind) -> Result<(), &str>;
 }
 
+pub struct UnsignedBlock {
+    pub previous_hash: String,
+    pub transactions: Vec<Transaction>,
+    pub nonce: u32,
+    pub timestamp: u64,
+}
+
+impl UnsignedBlock {
+    pub fn new(
+        previous_hash: &str,
+        transactions: Vec<Transaction>,
+        nonce: u32,
+        timestamp: u64,
+    ) -> Self {
+        Self {
+            previous_hash: previous_hash.to_string(),
+            transactions,
+            nonce,
+            timestamp,
+        }
+    }
+
+    pub fn hash(&self) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
+        let input = format!(
+            "{}:{}:{}:{}",
+            self.previous_hash,
+            serde_json::to_string(&self.transactions)?,
+            self.nonce,
+            self.timestamp
+        );
+        Ok(hash::hash(HashFunction::new(), &input))
+    }
+}
+
 /// Struct that defines a published block.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Block {
     pub previous_hash: String,
     pub transactions: Vec<Transaction>,
@@ -223,6 +253,19 @@ impl Block {
             timestamp,
             nonce,
         })
+    }
+
+    pub fn verify(&self) -> bool {
+        let unsigned_block = UnsignedBlock::new(
+            &self.previous_hash,
+            self.transactions.clone(),
+            self.nonce,
+            self.timestamp,
+        );
+        match unsigned_block.hash() {
+            Ok(h) => encode_hash(&h) == self.hash,
+            Err(_) => false,
+        }
     }
 }
 
@@ -258,6 +301,10 @@ impl Blockchain {
         )?);
         Ok(())
     }
+
+    pub fn verify(&self) -> bool {
+        self.blocks.iter().fold(false, |acc, b| acc && b.verify())
+    }
 }
 
 #[cfg(test)]
@@ -283,7 +330,7 @@ mod test {
             blockchain.add_block(transactions)?;
         }
 
-        println!("{:#?}", blockchain);
+        blockchain.verify(); // optimize
 
         Ok(())
     }
