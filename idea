@@ -1,0 +1,17 @@
+*merkle tree*
+
+add hash() to Transaction
+
+add merkle_root to Block
+
+add pub mod merkle_tree where:
+    defines merkle_root()
+            transaction_hash() -> Vec<u8> (computes the leaf hash of transaction)
+            merkle_root_hex? ->String)
+
+adapt pow
+    use
+    let input = format!("{previous_hash}:{merkle_root}:{nonce}:{timestamp}");
+    for hash
+
+merkle proofs?
