@@ -1,4 +1,4 @@
-use crate::time::now_unix;
+use crate::time::{Timestamp, now_unix};
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_slice, to_vec_pretty};
@@ -43,13 +43,13 @@ pub struct ValueRecord {
     pub key: Vec<u8>,
     pub value: Vec<u8>,
     pub quorum: usize,
-    pub created_at: u64,
+    pub created_at: Timestamp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderRecord {
     pub key: Vec<u8>,
-    pub announced_at: u64,
+    pub announced_at: Timestamp,
 }
 
 impl State {

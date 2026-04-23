@@ -1,10 +1,12 @@
 //! Module that implements the proof-of-work (PoW) blockchain components that form the distributed ledger.
 //!
 //! The PoW algorithm is based on the following references:
-//! - [Simple PoW Implementation in Go](https://towardsdev.com/the-proof-of-work-pow-mechanism-in-blockchain-6a49196cab75)
-//! - [Simple PoW Implementation in C](https://www.jmeiners.com/tiny-blockchain/)
-//! - [Simple PoW Implementation in Rust](https://hackernoon.com/rusty-chains-a-basic-blockchain-implementation-written-in-pure-rust-gk2m3uri)
-//! - [Bitcoin Protocol Specification](https://en.bitcoin.it/wiki/Protocol_documentation#Block_Headers)
+//! - [Simple PoW Implementation in Go](https://towardsdev.com/the-proof-of-work-pow-mechanism-in-blockchain-6a49196cab75);
+//! - [Simple PoW Implementation in C](https://www.jmeiners.com/tiny-blockchain/);
+//! - [Simple PoW Implementation in Rust](https://hackernoon.com/rusty-chains-a-basic-blockchain-implementation-written-in-pure-rust-gk2m3uri);
+//! - [Bitcoin Protocol Specification](https://en.bitcoin.it/wiki/Protocol_documentation#Block_Headers);
+//! - [Full Blockchain in Go](https://www.youtube.com/playlist?list=PL0xRBLFXXsP6-hxQmCDcl_BHJMm0mhxx7);
+//! - [Transaction Mempool](https://medium.com/coinmonks/creating-a-blockchain-part-6-transaction-mempool-and-tx-encoding-a1581479449e).
 
 use crate::blockchain::{account::Account, block::Block, transaction::Transaction};
 use blake2::Blake2b512;
@@ -55,7 +57,7 @@ pub mod hash {
 pub mod pow {
     use crate::{
         blockchain::{block::UnsignedBlock, transaction::Transaction},
-        time::now_unix,
+        time::{Timestamp, now_unix},
     };
     use std::error::Error;
     use tracing::info;
@@ -80,7 +82,7 @@ pub mod pow {
     pub fn mine(
         pow: &ProofOfWork,
         previous_hash: &str,
-    ) -> Result<(String, u32, u64), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(String, u32, Timestamp), Box<dyn Error + Send + Sync>> {
         loop {
             let timestamp = now_unix()?;
 
@@ -104,11 +106,17 @@ pub mod pow {
 
 /// Module that defines transactions and their execution.
 pub mod transaction {
-    use crate::{blockchain::State, time::now_unix};
+    use crate::{
+        blockchain::State,
+        time::{Timestamp, now_unix},
+    };
     use ed25519_dalek_blake2b::{Keypair, PublicKey, Signature, Signer, Verifier};
     use hex::ToHex;
     use serde::{Deserialize, Serialize};
-    use std::error::Error;
+    use std::{
+        collections::{HashMap, VecDeque},
+        error::Error,
+    };
 
     /// Struct that represents a transaction that can be executed in the blockchain. A transaction can
     /// change the current state of the chain.
@@ -116,8 +124,8 @@ pub mod transaction {
     pub struct Transaction {
         pub record: Data,
         pub from: String,
-        pub created_at: u64,
-        pub nonce: u64,
+        pub created_at: Timestamp,
+        pub nonce: u32,
         pub signature: String, // todo: refactor and use ed25519
     }
 
@@ -136,7 +144,7 @@ pub mod transaction {
         pub fn new(
             record: Data,
             from: String,
-            nonce: u64,
+            nonce: u32,
             key: Keypair,
         ) -> Result<Self, Box<dyn Error + Send + Sync>> {
             let signature = Self::sign(&record, &from, &nonce, &key)?;
@@ -153,7 +161,7 @@ pub mod transaction {
         fn serialize(
             record: &Data,
             from: &String,
-            nonce: &u64,
+            nonce: &u32,
         ) -> Result<String, Box<dyn Error + Send + Sync>> {
             Ok(format!(
                 "{}:{}:{}",
@@ -167,7 +175,7 @@ pub mod transaction {
         fn sign(
             record: &Data,
             from: &String,
-            nonce: &u64,
+            nonce: &u32,
             key: &Keypair,
         ) -> Result<String, Box<dyn Error + Send + Sync>> {
             let input = Self::serialize(record, from, nonce)?;
@@ -208,6 +216,53 @@ pub mod transaction {
             Ok(())
         }
     }
+
+    /// Type that implements the queue of transactions to be executed and published as a block,
+    /// constructed from the mempool and sorted by timestamp.
+    pub type Memqueue = VecDeque<Transaction>;
+
+    /// Struct that temporarily holds unexecuted transactions mapped by timestamp.
+    #[derive(Clone)]
+    pub struct Mempool(HashMap<Timestamp, Transaction>);
+
+    impl Mempool {
+        /// Function that creates an empty mempool.
+        pub fn new() -> Self {
+            Self(HashMap::new())
+        }
+
+        /// Function to get the current mempool.
+        pub fn get(&self) -> &HashMap<Timestamp, Transaction> {
+            &self.0
+        }
+
+        /// Function that sorts the mempool by timestamp mapping it to a queue of transactions,
+        fn to_sorted_queue(self) -> Memqueue {
+            let mut v = self
+                .0
+                .into_iter()
+                .collect::<Vec<(Timestamp, Transaction)>>();
+            v.sort_by(|a, b| a.0.cmp(&b.0));
+            v.into_iter().map(|(_, t)| t).collect::<Memqueue>()
+        }
+
+        /// Function that gets the current length of the mempool.
+        pub fn len(&self) -> usize {
+            self.0.len()
+        }
+
+        /// Function that adds a transaction to the mempool.
+        pub fn add_transaction(&mut self, transaction: Transaction) {
+            self.0.insert(transaction.created_at, transaction);
+        }
+
+        /// Function that flushes the current mempool and returns a queue sorted by timestamp.
+        pub fn flush(&mut self) -> Memqueue {
+            let memqueue = self.clone().to_sorted_queue();
+            *self = Self::new();
+            memqueue
+        }
+    }
 }
 
 /// Module that defines a blockchain user account.
@@ -245,11 +300,14 @@ pub mod account {
 
 /// Module that defines the unsigned and signed block.
 pub mod block {
-    use crate::blockchain::{
-        HashFunction,
-        hash::{self, encode_hash},
-        pow,
-        transaction::Transaction,
+    use crate::{
+        blockchain::{
+            HashFunction,
+            hash::{self, encode_hash},
+            pow,
+            transaction::Transaction,
+        },
+        time::Timestamp,
     };
     use blake2::Digest;
     use serde::{Deserialize, Serialize};
@@ -260,7 +318,7 @@ pub mod block {
         pub previous_hash: String,
         pub transactions: Vec<Transaction>,
         pub nonce: u32,
-        pub timestamp: u64,
+        pub timestamp: Timestamp,
     }
 
     impl UnsignedBlock {
@@ -269,7 +327,7 @@ pub mod block {
             previous_hash: &str,
             transactions: &[Transaction],
             nonce: u32,
-            timestamp: u64,
+            timestamp: Timestamp,
         ) -> Self {
             Self {
                 previous_hash: previous_hash.to_string(),
@@ -299,7 +357,7 @@ pub mod block {
         pub transactions: Vec<Transaction>,
         pub hash: String,
         pub nonce: u32,
-        pub timestamp: u64,
+        pub timestamp: Timestamp,
     }
 
     impl Block {
