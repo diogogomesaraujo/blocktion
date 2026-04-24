@@ -109,7 +109,7 @@ pub mod pow {
 }
 
 pub mod merkle {
-    use crate::blockchain::{HashFunction, hash, transaction::Transaction};
+    use crate::blockchain::{HashFunction, block::Block, hash, transaction::Transaction};
     use blake2::Digest;
     use std::{collections::VecDeque, error::Error};
 
@@ -155,7 +155,10 @@ pub mod merkle {
         }
     }
 
-    pub fn merkle_proof() {
+    pub fn merkle_proof(
+        transaction_idx: u32,
+        transactions: &[Transaction],
+    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         todo!()
     }
 
@@ -456,6 +459,13 @@ pub mod block {
                 self.previous_hash, self.merkle_root, self.nonce, self.timestamp
             );
             Ok(hash::hash(HashFunction::new(), &input))
+        }
+
+        pub fn generate_merkle_proof(
+            &self,
+            transaction_idx: u32,
+        ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+            todo!()
         }
     }
 
