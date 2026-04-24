@@ -105,18 +105,56 @@ pub mod pow {
 pub mod merkle {
     use crate::blockchain::{HashFunction, hash, transaction::Transaction};
     use blake2::Digest;
-    use std::error::Error;
+    use std::{collections::VecDeque, error::Error};
 
-    // stub for merkle root finder
     pub fn root(transactions: &[Transaction]) -> Result<String, Box<dyn Error + Send + Sync>> {
+        if transactions.is_empty() {
+            return Err("Cannot build Merkle root from empty transaction list.".into());
+        }
+        let mut tmp: VecDeque<String> = VecDeque::new();
+        let mut pairs = transactions.chunks(2);
+        while let Some(pair) = pairs.next() {
+            match pair {
+                [left, right] => {
+                    tmp.push_back(hash(left.hash()?, right.hash()?)?);
+                }
+                [single] => {
+                    let h = single.hash()?;
+                    tmp.push_back(hash(h.clone(), h)?);
+                }
+                _ => unreachable!(),
+            }
+        }
+        while tmp.len() > 1 {
+            let mut tmp2: VecDeque<String> = VecDeque::new();
+            while let Some(left) = tmp.pop_front() {
+                match tmp.pop_front() {
+                    Some(right) => {
+                        tmp2.push_back(hash(left, right)?);
+                    }
+                    None => {
+                        tmp2.push_back(hash(left.clone(), left)?);
+                    }
+                }
+            }
+            tmp = tmp2;
+        }
+
+        match tmp.pop_front() {
+            Some(root) => return Ok(root),
+            _ => return Err("Merkle root calculation failed.".into()),
+        }
+    }
+
+    pub fn merkle_proof() {
         todo!()
     }
 
     // stub for hashing a pair of leaves
-    pub fn hash(left: &str, right: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
-        let input = format!("{}{}", left, right);
+    pub fn hash(left: String, right: String) -> Result<String, Box<dyn Error + Send + Sync>> {
+        let input = format!("{}:{}", left, right);
         let h = hash::hash(HashFunction::new(), &input);
-        Ok(hex::encode(h))
+        Ok(hash::encode_hash(&h))
     }
 }
 
