@@ -527,13 +527,6 @@ pub mod block {
             );
             Ok(hash::hash(HashFunction::new(), &input))
         }
-
-        pub fn generate_merkle_proof(
-            &self,
-            transaction_idx: u32,
-        ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-            todo!()
-        }
     }
 
     /// Struct that defines a published block.
@@ -589,6 +582,13 @@ pub mod block {
                 Ok(h) => Ok(encode_hash(&h) == self.hash),
                 Err(_) => Ok(false),
             }
+        }
+
+        pub fn generate_merkle_proof(
+            &self,
+            transaction_idx: usize,
+        ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+            merkle::proof(transaction_idx, &self.transactions)
         }
     }
 }
