@@ -1,4 +1,5 @@
 use crate::{
+    MAX_CONSECUTIVE_FAILURES,
     gossip::{Metadata, topic},
     runtime::Runtime,
     time::now_unix,
@@ -12,7 +13,7 @@ use libp2p::{
 use libp2p_gossipsub::{self as gossipsub};
 use serde_json::from_slice;
 use std::error::Error;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// Struct that represents the `libp2p` primitives used to construct the DHT.
 #[derive(NetworkBehaviour)]
@@ -87,15 +88,33 @@ impl DhtBehaviourEvent {
                     .add_address(&peer_id, endpoint.get_remote_address().clone());
             }
 
-            // track disconnection and evict peers that exceed failure threshold
-            SwarmEvent::ConnectionClosed {
-                peer_id,
-                connection_id,
-                endpoint,
-                num_established,
-                cause,
-            } => {
-                todo!()
+            SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
+                let now = now_unix()?;
+
+                if let Some(cause) = &cause {
+                    warn!("Connection to {:?} closed due to: {:?}", peer_id, cause)
+                } else {
+                    info!("Connection to {:?} closed cleanly.", peer_id)
+                }
+
+                if let Some(entry) = runtime.state.peers.get_mut(&peer_id) {
+                    entry.last_seen = Some(now);
+
+                    if let Some(_) = &cause {
+                        entry.consecutive_failures = entry.consecutive_failures.saturating_add(1);
+                    } else {
+                        entry.consecutive_failures = 0;
+                    }
+
+                    if entry.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                        warn!(
+                            "Evicting {:?} after {} consecutive failures",
+                            peer_id, entry.consecutive_failures
+                        );
+                        runtime.swarm.behaviour_mut().kad.remove_peer(&peer_id);
+                        entry.is_in_routing_table = false;
+                    }
+                }
             }
 
             SwarmEvent::Behaviour(DhtBehaviourEvent::Kad(event)) => match event {
