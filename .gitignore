@@ -8,3 +8,4 @@ Cargo.lock
 *.swo
 local.json/
 test
+analysis/

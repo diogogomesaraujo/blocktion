@@ -87,6 +87,17 @@ impl DhtBehaviourEvent {
                     .add_address(&peer_id, endpoint.get_remote_address().clone());
             }
 
+            // track disconnection and evict peers that exceed failure threshold
+            SwarmEvent::ConnectionClosed {
+                peer_id,
+                connection_id,
+                endpoint,
+                num_established,
+                cause,
+            } => {
+                todo!()
+            }
+
             SwarmEvent::Behaviour(DhtBehaviourEvent::Kad(event)) => match event {
                 kad::Event::InboundRequest { request } => {
                     info!("Inbound Kademlia request: {:?}", request);
@@ -323,7 +334,56 @@ impl DhtBehaviourEvent {
                     topic::METADATA => match from_slice::<Metadata>(&message.data) {
                         Ok(msg) => info!("Overlay metadata: {:?}", msg),
                         Err(e) => error!("Invalid overlay metadata payload: {e}"),
+                        // FIX! validate claimed peer_id matches the cryptographic source
                     },
+                    topic::TRANSACTIONS => {
+                        info!(
+                            "Received transaction gossip ({} bytes) from {:?}.",
+                            message.data.len(),
+                            propagation_source
+                        );
+                        // TODO: deserialize Transaction, validate signature, add to mempool
+                    }
+
+                    topic::BLOCKS => {
+                        info!(
+                            "Received block gossip ({} bytes) from {:?}.",
+                            message.data.len(),
+                            propagation_source
+                        );
+                        // TODO: deserialize Block, verify, append to chain
+                    }
+
+                    topic::PEER_REPUTATION => {
+                        info!(
+                            "Received peer reputation update ({} bytes) from {:?}.",
+                            message.data.len(),
+                            propagation_source
+                        );
+                        // TODO: deserialize reputation report, update PeerInfo score
+                    }
+
+                    topic::SUSPICIOUS_PEERS => {
+                        info!(
+                            "Received suspicious peer report ({} bytes) from {:?}.",
+                            message.data.len(),
+                            propagation_source
+                        );
+                        // TODO: deserialize report, increment consecutive_failures for reported peer
+                    }
+
+                    topic::LIVENESS => {
+                        info!(
+                            "Received liveness heartbeat ({} bytes) from {:?}.",
+                            message.data.len(),
+                            propagation_source
+                        );
+                        let now = now_unix()?;
+                        if let Some(entry) = runtime.state.peers.get_mut(&propagation_source) {
+                            entry.last_seen = Some(now);
+                        }
+                    }
+
                     _ => {
                         info!("Received message for unknown topic {}", t);
                     }

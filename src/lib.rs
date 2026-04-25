@@ -10,3 +10,4 @@ pub mod state;
 pub mod time;
 
 pub const CONFIG_DIR: &str = "config";
+pub const QUORUM: usize = 3;

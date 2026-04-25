@@ -1,4 +1,5 @@
 use crate::{
+    QUORUM,
     behaviour::DhtBehaviour,
     gossip::{Metadata, topic},
     rpc::{DhtRpc, LISTEN_ON},
@@ -181,8 +182,7 @@ impl DhtRpc for Node {
                 let key = RecordKey::new(&key_text);
                 let value = value_text.as_bytes().to_vec();
 
-                // let quorum = 3usize;
-                let quorum = 1usize; // for now we are using low quorum for testing
+                let quorum = QUORUM;
 
                 let record = Record {
                     key: key.clone(),
