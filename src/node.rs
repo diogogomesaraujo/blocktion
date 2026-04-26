@@ -66,7 +66,7 @@ impl DhtRpc for Node {
             "FIND_PROVIDERS" => Some(RpcAction::FindProviders),
             "ROUTING_TABLE" => Some(RpcAction::RoutingTable),
             "CONNECTED_PEERS" => Some(RpcAction::ConnectedPeers),
-            "GOSSIP_META" => Some(RpcAction::Metadata),
+            "METADATA" => Some(RpcAction::Metadata),
             _ => None,
         }
     }

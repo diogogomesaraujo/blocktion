@@ -669,10 +669,13 @@ impl Blockchain {
 
     /// Function that verifies each block in the blockchain.
     pub fn verify(&self) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        let mut previous_hash = "0".to_string();
+
         for block in &self.blocks {
-            if !block.verify()? {
+            if !block.verify()? || previous_hash != block.previous_hash {
                 return Ok(false);
             }
+            previous_hash = block.hash.clone();
         }
         Ok(true)
     }
