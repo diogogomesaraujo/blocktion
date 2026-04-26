@@ -365,7 +365,7 @@ pub mod transaction {
         }
 
         /// Function that verifies the validity of a transaction.
-        pub fn validate(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        pub fn verify(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
             let pk = string_to_public_key(&self.from)?;
             let signature = match Signature::from_bytes(&hex::decode(&self.signature)?) {
                 Ok(s) => s,
@@ -726,7 +726,7 @@ impl Blockchain {
             let mut blockchain_temp = self.clone();
             block_to_append.transactions.iter().try_for_each(
                 |t| -> Result<(), Box<dyn Error + Send + Sync>> {
-                    t.validate()?;
+                    t.verify()?;
                     t.execute(&mut blockchain_temp)?;
                     Ok(())
                 },

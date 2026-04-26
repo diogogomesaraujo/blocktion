@@ -254,6 +254,7 @@ impl DhtBehaviourEvent {
 
                         kad::QueryResult::GetRecord(Ok(GetRecordOk::FoundRecord(PeerRecord {
                             record: Record { key, value, .. },
+                            peer,
                             ..
                         }))) => {
                             info!(
@@ -372,15 +373,8 @@ impl DhtBehaviourEvent {
                                 message.data.len(),
                                 propagation_source
                             );
-
-                            msg.validate()?;
-
-                            if !runtime.state.blockchain.transaction_mempool.contains(&msg) {
-                                runtime
-                                    .state
-                                    .blockchain
-                                    .transaction_mempool
-                                    .add_transaction(msg)?;
+                            if let Err(e) = runtime.submit_transaction(msg) {
+                                error!("Failed to process gossiped transaction: {e}");
                             }
                         }
                         Err(e) => error!("Invalid transaction payload: {e}"),
@@ -393,13 +387,11 @@ impl DhtBehaviourEvent {
                                 message.data.len(),
                                 propagation_source
                             );
-                            if !msg.verify()? {
+                            if let Err(e) = runtime.accept_block(msg) {
                                 error!(
-                                    "Received invalid block from {:?}, discarding.",
+                                    "Failed to process gossiped block from {:?}: {e}",
                                     propagation_source
                                 );
-                            } else {
-                                runtime.state.blockchain.accept_block(msg)?;
                             }
                         }
                         Err(e) => error!("Invalid block payload: {e}"),
