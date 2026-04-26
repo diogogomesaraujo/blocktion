@@ -351,8 +351,17 @@ impl DhtBehaviourEvent {
 
                 match t {
                     topic::METADATA => match from_slice::<Metadata>(&message.data) {
-                        Ok(msg) => info!("Overlay metadata: {:?}", msg),
-                        Err(e) => error!("Invalid overlay metadata payload: {e}"),
+                        Ok(msg) => {
+                            if msg.peer_id == propagation_source.to_string() {
+                                info!("Metadata: {:?}", msg)
+                            } else {
+                                error!(
+                                    "Metadata payload discarded. Peer {:?} impersonated {}.",
+                                    propagation_source, msg.peer_id
+                                )
+                            }
+                        }
+                        Err(e) => error!("Invalid metadata payload: {e}"),
                         // FIX! validate claimed peer_id matches the cryptographic source
                     },
                     topic::TRANSACTIONS => {
