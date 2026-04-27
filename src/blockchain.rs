@@ -43,6 +43,11 @@ pub mod ed25519 {
 pub mod hash {
     use crate::blockchain::HashFunction;
     use blake2::Digest;
+    use std::error::Error;
+
+    pub trait Hashable {
+        fn hash(&self) -> Result<String, Box<dyn Error + Send + Sync>>;
+    }
 
     /// Function that hashes a given payload, returning the result in bytes.
     pub fn hash(mut h: HashFunction, data: &str) -> Vec<u8> {
@@ -88,7 +93,7 @@ pub mod pow {
 
     /// Constant that represents the magic number used to define the difficulty of mineration.
     const TARGET: &[u8] = &[
-        0, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0,
     ];
 
@@ -137,7 +142,10 @@ pub mod pow {
 
 /// Module that defines the merkle tree structure for lightweight transaction verification
 pub mod merkle {
-    use crate::blockchain::{HashFunction, hash, transaction::Transaction};
+    use crate::blockchain::{
+        HashFunction,
+        hash::{self, Hashable},
+    };
     use blake2::Digest;
     use std::{collections::VecDeque, error::Error};
 
@@ -153,12 +161,12 @@ pub mod merkle {
     type Proof = Vec<(String, Side)>;
 
     /// Function that returns the Merkle root of a given set of transactions
-    pub fn root(transactions: &[Transaction]) -> Result<String, Box<dyn Error + Send + Sync>> {
-        if transactions.is_empty() {
+    pub fn root<T: Hashable>(t: &[T]) -> Result<String, Box<dyn Error + Send + Sync>> {
+        if t.is_empty() {
             return Err("Cannot build Merkle root from empty transaction list.".into());
         }
         let mut tmp: VecDeque<String> = VecDeque::new();
-        let mut pairs = transactions.chunks(2);
+        let mut pairs = t.chunks(2);
         while let Some(pair) = pairs.next() {
             match pair {
                 [l, r] => {
@@ -197,17 +205,17 @@ pub mod merkle {
 
     /// Function that produces the Merkle proof for the transaction at the given index.
     /// Tree is treated internally as a queue, avoiding the need for a recursive type.
-    pub fn proof(
-        transaction_idx: usize,
-        transactions: &[Transaction],
+    pub fn proof<T: Hashable>(
+        t_idx: usize,
+        t: &[T],
     ) -> Result<Proof, Box<dyn Error + Send + Sync>> {
-        if transaction_idx > transactions.len() {
+        if t_idx > t.len() {
             return Err("Transaction index was out of bounds".into());
         }
-        let mut th = transactions[transaction_idx].hash()?;
+        let mut th = t[t_idx].hash()?;
 
         let mut tmp: VecDeque<String> = VecDeque::new();
-        let mut pairs = transactions.chunks(2);
+        let mut pairs = t.chunks(2);
         while let Some(pair) = pairs.next() {
             match pair {
                 [l, r] => {
@@ -259,13 +267,13 @@ pub mod merkle {
 
     /// Function which verifies that the given transaction and Merkle proof correctly
     /// produce the target Merkle root.
-    pub fn verify(
-        transaction: Transaction,
+    pub fn verify<T: Hashable>(
+        t: T,
         root: String,
         proof: Proof,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         let result = proof.iter().try_fold(
-            transaction.hash()?,
+            t.hash()?,
             |acc, (sibling, side)| -> Result<String, Box<dyn Error + Send + Sync>> {
                 match side {
                     Side::Left => hash(sibling, &acc),
@@ -287,7 +295,7 @@ pub mod merkle {
 /// Module that defines transactions and their execution.
 pub mod transaction {
     use crate::{
-        blockchain::{HashFunction, WorldState, ed25519::string_to_public_key},
+        blockchain::{HashFunction, WorldState, ed25519::string_to_public_key, hash::Hashable},
         time::{Timestamp, now_unix},
     };
     use blake2::Digest;
@@ -392,8 +400,10 @@ pub mod transaction {
             // check and increment nonce
             Ok(())
         }
+    }
 
-        pub fn hash(&self) -> Result<String, Box<dyn Error + Send + Sync>> {
+    impl Hashable for Transaction {
+        fn hash(&self) -> Result<String, Box<dyn Error + Send + Sync>> {
             let input = serde_json::to_string(self)?;
             let h = crate::blockchain::hash::hash(HashFunction::new(), &input);
             Ok(hex::encode(h))
@@ -536,7 +546,7 @@ pub mod block {
     use crate::{
         blockchain::{
             HashFunction,
-            hash::{self, encode_hash},
+            hash::{self, Hashable, encode_hash},
             merkle::{self, Side},
             pow,
             transaction::Transaction,
@@ -646,20 +656,24 @@ pub mod block {
             merkle::proof(transaction_idx, &self.transactions)
         }
     }
+
+    impl Hashable for Block {
+        fn hash(&self) -> Result<String, Box<dyn Error + Send + Sync>> {
+            let input = serde_json::to_string(self)?;
+            let h = crate::blockchain::hash::hash(HashFunction::new(), &input);
+            Ok(hex::encode(h))
+        }
+    }
 }
 
 /// Trait that defines the functions that can mutate the blockchain.
 pub trait WorldState {
     const CREATE_ACCOUNT_MESSAGE: &str = "blocktion";
 
-    /// Will bring us all registered user ids
-    fn get_user_ids(&self) -> Vec<String>;
-
-    /// Will return a account given it's id if is available (mutable)
-    fn get_account_by_id_mut(&mut self, id: &String) -> Option<&mut Account>;
+    fn account_balance(&self, public_key: &str) -> u128;
 
     /// Will return a account given it's id if is available
-    fn get_account_by_id(&self, id: &str) -> Option<&Account>;
+    fn get_account_by_id(&self, public_key: &str) -> Option<&Account>;
 
     /// Will add a new account
     fn create_account(
@@ -689,7 +703,7 @@ impl Blockchain {
         })
     }
 
-    pub fn accept_block(&mut self, block: Block) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub fn accept_block(&mut self, _block: Block) -> Result<(), Box<dyn Error + Send + Sync>> {
         todo!()
     }
 
@@ -770,16 +784,12 @@ impl WorldState for Blockchain {
         Ok(())
     }
 
+    fn account_balance(&self, _public_key: &str) -> u128 {
+        0
+    }
+
     fn get_account_by_id(&self, public_key: &str) -> Option<&Account> {
         self.accounts.get(&public_key.to_string())
-    }
-
-    fn get_account_by_id_mut(&mut self, _id: &String) -> Option<&mut Account> {
-        todo!()
-    }
-
-    fn get_user_ids(&self) -> Vec<String> {
-        todo!()
     }
 }
 
@@ -798,7 +808,7 @@ mod test {
     fn test_blockchain() -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut blockchain = Blockchain::new(u32::MAX)?;
 
-        for n in 0..2 {
+        for n in 0..100 {
             let keys = Keypair::generate(&mut OsRng);
 
             let transactions = vec![Transaction::new(
