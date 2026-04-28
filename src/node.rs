@@ -17,7 +17,8 @@ use libp2p::{
     noise, ping, tcp, yamux,
 };
 use libp2p_gossipsub::{
-    self as gossipsub, IdentTopic, MessageAuthenticity, MessageId, ValidationMode,
+    self as gossipsub, IdentTopic, MessageAuthenticity, MessageId, PeerScoreParams,
+    PeerScoreThresholds, TopicScoreParams, ValidationMode,
 };
 use std::{
     collections::hash_map::DefaultHasher,
@@ -86,6 +87,8 @@ impl DhtRpc for Node {
             .with_behaviour(|key| {
                 let local_id = key.public().to_peer_id();
 
+                /* Kademlia */
+
                 let mut kad_cfg = Config::new(ipfs_proto_name.clone());
                 kad_cfg.set_query_timeout(Duration::from_secs(60));
                 kad_cfg.set_periodic_bootstrap_interval(Some(Duration::from_secs(300)));
@@ -101,16 +104,22 @@ impl DhtRpc for Node {
                 let store = MemoryStore::new(local_id);
                 let kad = kad::Behaviour::with_config(local_id, store, kad_cfg);
 
+                /* Ping */
+
                 let ping = ping::Behaviour::new(
                     ping::Config::new()
                         .with_interval(Duration::from_secs(10))
                         .with_timeout(Duration::from_secs(3)),
                 );
 
+                /* Identify */
+
                 let identify = identify::Behaviour::new(identify::Config::new(
                     ipfs_proto_name.to_string(),
                     key.public(),
                 ));
+
+                /* Gossip */
 
                 let message_id_fn = |message: &gossipsub::Message| {
                     let mut hasher = DefaultHasher::new();
@@ -128,6 +137,72 @@ impl DhtRpc for Node {
                     MessageAuthenticity::Signed(key.clone()),
                     gossip_config,
                 )?;
+
+                // placeholder
+                let topic_score = TopicScoreParams::default();
+
+                // let mut topic_score = TopicScoreParams {
+                //     topic_weight: (),
+                //     time_in_mesh_weight: (),
+                //     time_in_mesh_quantum: (),
+                //     time_in_mesh_cap: (),
+                //     first_message_deliveries_weight: (),
+                //     first_message_deliveries_decay: (),
+                //     first_message_deliveries_cap: (),
+                //     mesh_message_deliveries_weight: (),
+                //     mesh_message_deliveries_decay: (),
+                //     mesh_message_deliveries_cap: (),
+                //     mesh_message_deliveries_threshold: (),
+                //     mesh_message_deliveries_window: (),
+                //     mesh_message_deliveries_activation: (),
+                //     mesh_failure_penalty_weight: (),
+                //     mesh_failure_penalty_decay: (),
+                //     invalid_message_deliveries_weight: (),
+                //     invalid_message_deliveries_decay: (),
+                // };
+
+                // placeholder
+                let mut peer_score = PeerScoreParams::default();
+
+                // let mut peer_score = PeerScoreParams {
+                //     topics: (),
+                //     topic_score_cap: (),
+                //     app_specific_weight: (),
+                //     ip_colocation_factor_weight: (),
+                //     ip_colocation_factor_threshold: (),
+                //     ip_colocation_factor_whitelist: (),
+                //     behaviour_penalty_weight: (),
+                //     behaviour_penalty_threshold: (),
+                //     behaviour_penalty_decay: (),
+                //     decay_interval: (),
+                //     decay_to_zero: (),
+                //     retain_score: (),
+                //     slow_peer_weight: (),
+                //     slow_peer_threshold: (),
+                //     slow_peer_decay: (),
+                // };
+
+                peer_score.topics.insert(
+                    gossipsub::IdentTopic::new(topic::TRANSACTIONS).hash(),
+                    topic_score.clone(),
+                );
+                peer_score.topics.insert(
+                    gossipsub::IdentTopic::new(topic::BLOCKS).hash(),
+                    topic_score,
+                );
+
+                // placeholder
+                let thresholds = PeerScoreThresholds::default();
+
+                // let thresholds = PeerScoreThresholds {
+                //     gossip_threshold: (),
+                //     publish_threshold: (),
+                //     graylist_threshold: (),
+                //     accept_px_threshold: (),
+                //     opportunistic_graft_threshold: (),
+                // };
+
+                gossip.with_peer_score(peer_score, thresholds)?;
 
                 gossip.subscribe(&IdentTopic::new(topic::TRANSACTIONS))?;
                 gossip.subscribe(&IdentTopic::new(topic::BLOCKS))?;
