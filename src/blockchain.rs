@@ -478,6 +478,10 @@ pub mod transaction {
             self.0.len()
         }
 
+        pub fn remove(&mut self, timestamp: Timestamp) {
+            self.0.remove(&timestamp);
+        }
+
         /// Function that adds a transaction to the mempool.
         pub fn add_transaction(
             &mut self,
@@ -496,6 +500,7 @@ pub mod transaction {
 
         pub fn contains(&self, transaction: &Transaction) -> bool {
             self.0.contains_key(&transaction.created_at)
+                && self.0[&transaction.created_at] == *transaction
         }
     }
 
@@ -749,11 +754,11 @@ impl Blockchain {
     }
 
     pub fn accept_block(&mut self, block: Block) -> Result<(), Box<dyn Error + Send + Sync>> {
-        if !block
-            .transactions
-            .iter()
-            .fold(true, |acc, t| acc && self.transaction_mempool.contains(t))
-        {
+        if !block.transactions.iter().fold(true, |acc, t| {
+            let has = self.transaction_mempool.contains(t);
+            self.transaction_mempool.remove(t.created_at);
+            acc && has
+        }) {
             return Err(
                 "The block proposed contains transactions that are not in the mempool.".into(),
             );
