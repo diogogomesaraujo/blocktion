@@ -1,16 +1,14 @@
-use crate::{
-    LOOKUP_QUORUM, behaviour::DhtBehaviour, gossip::topic, rpc::DhtRpc, runtime::Runtime,
-    state::State,
-};
+use crate::{behaviour::DhtBehaviour, gossip::topic, rpc::DhtRpc, runtime::Runtime, state::State};
 use async_trait::async_trait;
 use libp2p::{
     Multiaddr, PeerId, StreamProtocol, SwarmBuilder, identify,
     identity::Keypair,
-    kad::{self, ALPHA_VALUE, K_VALUE, Mode},
+    kad::{self, Caching, Config, K_VALUE, Mode, store::MemoryStore},
     noise, ping, tcp, yamux,
 };
 use libp2p_gossipsub::{
-    self as gossipsub, IdentTopic, MessageAuthenticity, MessageId, ValidationMode,
+    self as gossipsub, IdentTopic, MessageAuthenticity, MessageId, PeerScoreParams,
+    PeerScoreThresholds, TopicScoreParams, ValidationMode,
 };
 use std::{
     collections::hash_map::DefaultHasher,
@@ -67,7 +65,9 @@ impl DhtRpc for BootNode {
             .with_behaviour(|key| {
                 let local_id = key.public().to_peer_id();
 
-                let mut kad_cfg = kad::Config::new(ipfs_proto_name.clone());
+                /* Kademlia */
+
+                let mut kad_cfg = Config::new(ipfs_proto_name.clone());
                 kad_cfg.set_query_timeout(Duration::from_secs(60));
                 kad_cfg.set_periodic_bootstrap_interval(Some(Duration::from_secs(300)));
                 kad_cfg.set_record_ttl(Some(Duration::from_secs(36 * 60 * 60)));
@@ -75,15 +75,14 @@ impl DhtRpc for BootNode {
                 kad_cfg.set_publication_interval(Some(Duration::from_secs(24 * 60 * 60)));
                 kad_cfg.set_replication_factor(K_VALUE);
                 kad_cfg.disjoint_query_paths(true);
-                kad_cfg.set_parallelism(ALPHA_VALUE);
                 kad_cfg.set_provider_record_ttl(Some(Duration::from_secs(48 * 60 * 60)));
                 kad_cfg.set_provider_publication_interval(Some(Duration::from_secs(12 * 60 * 60)));
-                kad_cfg.set_caching(kad::Caching::Enabled {
-                    max_peers: LOOKUP_QUORUM,
-                });
+                kad_cfg.set_caching(Caching::Enabled { max_peers: 1 });
 
-                let store = kad::store::MemoryStore::new(local_id);
+                let store = MemoryStore::new(local_id);
                 let kad = kad::Behaviour::with_config(local_id, store, kad_cfg);
+
+                /* Ping */
 
                 let ping = ping::Behaviour::new(
                     ping::Config::new()
@@ -91,10 +90,14 @@ impl DhtRpc for BootNode {
                         .with_timeout(Duration::from_secs(3)),
                 );
 
+                /* Identify */
+
                 let identify = identify::Behaviour::new(identify::Config::new(
                     ipfs_proto_name.to_string(),
                     key.public(),
                 ));
+
+                /* Gossip */
 
                 let message_id_fn = |message: &gossipsub::Message| {
                     let mut hasher = DefaultHasher::new();
@@ -112,6 +115,72 @@ impl DhtRpc for BootNode {
                     MessageAuthenticity::Signed(key.clone()),
                     gossip_config,
                 )?;
+
+                // placeholder
+                let topic_score = TopicScoreParams::default();
+
+                // let mut topic_score = TopicScoreParams {
+                //     topic_weight: (),
+                //     time_in_mesh_weight: (),
+                //     time_in_mesh_quantum: (),
+                //     time_in_mesh_cap: (),
+                //     first_message_deliveries_weight: (),
+                //     first_message_deliveries_decay: (),
+                //     first_message_deliveries_cap: (),
+                //     mesh_message_deliveries_weight: (),
+                //     mesh_message_deliveries_decay: (),
+                //     mesh_message_deliveries_cap: (),
+                //     mesh_message_deliveries_threshold: (),
+                //     mesh_message_deliveries_window: (),
+                //     mesh_message_deliveries_activation: (),
+                //     mesh_failure_penalty_weight: (),
+                //     mesh_failure_penalty_decay: (),
+                //     invalid_message_deliveries_weight: (),
+                //     invalid_message_deliveries_decay: (),
+                // };
+
+                // placeholder
+                let mut peer_score = PeerScoreParams::default();
+
+                // let mut peer_score = PeerScoreParams {
+                //     topics: (),
+                //     topic_score_cap: (),
+                //     app_specific_weight: (),
+                //     ip_colocation_factor_weight: (),
+                //     ip_colocation_factor_threshold: (),
+                //     ip_colocation_factor_whitelist: (),
+                //     behaviour_penalty_weight: (),
+                //     behaviour_penalty_threshold: (),
+                //     behaviour_penalty_decay: (),
+                //     decay_interval: (),
+                //     decay_to_zero: (),
+                //     retain_score: (),
+                //     slow_peer_weight: (),
+                //     slow_peer_threshold: (),
+                //     slow_peer_decay: (),
+                // };
+
+                peer_score.topics.insert(
+                    gossipsub::IdentTopic::new(topic::TRANSACTIONS).hash(),
+                    topic_score.clone(),
+                );
+                peer_score.topics.insert(
+                    gossipsub::IdentTopic::new(topic::BLOCKS).hash(),
+                    topic_score,
+                );
+
+                // placeholder
+                let thresholds = PeerScoreThresholds::default();
+
+                // let thresholds = PeerScoreThresholds {
+                //     gossip_threshold: (),
+                //     publish_threshold: (),
+                //     graylist_threshold: (),
+                //     accept_px_threshold: (),
+                //     opportunistic_graft_threshold: (),
+                // };
+
+                gossip.with_peer_score(peer_score, thresholds)?;
 
                 gossip.subscribe(&IdentTopic::new(topic::TRANSACTIONS))?;
                 gossip.subscribe(&IdentTopic::new(topic::BLOCKS))?;
