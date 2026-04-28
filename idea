@@ -1,19 +1,5 @@
-*merkle tree*
+score, blacklist, remove
 
-add hash() to Transaction
+do the handling in behaviour
 
-add merkle_root to Block
-
-add pub mod merkle_tree where:
-    defines merkle_root()
-            transaction_hash() -> Vec<u8> (computes the leaf hash of transaction)
-            merkle_root_hex? ->String)
-
-adapt pow
-    use
-    let input = format!("{previous_hash}:{merkle_root}:{nonce}:{timestamp}");
-    for hash
-
-merkle proofs?
-
-http://medium.com/coinmonks/merkle-tree-a-simple-explanation-and-implementation-48903442bc08
+create strucutres and api for gossip with params and threasholds based on an actual protocol
