@@ -10,10 +10,7 @@
 //! - [Merkle Tree in Blockchain Implementation](https://dsvynarenko.hashnode.dev/designing-blockchain-4-merkle-trees-and-state-verification).
 
 use crate::blockchain::{
-    account::Account,
-    block::Block,
-    ed25519::string_to_public_key,
-    transaction::{Mempool, Transaction},
+    account::Account, block::Block, ed25519::string_to_public_key, transaction::Mempool,
 };
 use blake2::Blake2b512;
 use ed25519_dalek_blake2b::Signature;
@@ -313,10 +310,7 @@ pub mod transaction {
     use ed25519_dalek_blake2b::{Keypair, Signature, Signer, Verifier};
     use hex::ToHex;
     use serde::{Deserialize, Serialize};
-    use std::{
-        collections::{HashMap, VecDeque},
-        error::Error,
-    };
+    use std::{collections::HashMap, error::Error};
 
     /// Struct that represents a transaction that can be executed in the blockchain. A transaction can
     /// change the current state of the chain.
@@ -446,7 +440,7 @@ pub mod transaction {
 
     /// Type that implements the queue of transactions to be executed and published as a block,
     /// constructed from the mempool and sorted by timestamp.
-    pub type Memqueue = VecDeque<Transaction>;
+    pub type Memqueue = Vec<Transaction>;
 
     /// Struct that temporarily holds unexecuted transactions mapped by timestamp.
     #[derive(Debug, Clone)]
@@ -652,11 +646,13 @@ pub mod block {
         pub hash: String,
         pub nonce: u32,
         pub timestamp: Timestamp,
+        pub miner: String,
     }
 
     impl Block {
         /// Function that creates a new block for a given set of transactions after mining the correct nonce.
         pub fn new(
+            public_key: String,
             previous_hash: Option<String>,
             transactions: Vec<Transaction>,
             difficulty: u32,
@@ -675,10 +671,11 @@ pub mod block {
             let merkle_root = crate::blockchain::merkle::root(&p.transactions)?;
 
             Ok(Block {
-                previous_hash,
                 transactions: p.transactions,
-                merkle_root,
+                miner: public_key,
                 hash: h,
+                previous_hash,
+                merkle_root,
                 timestamp,
                 nonce,
             })
@@ -764,6 +761,16 @@ impl Blockchain {
             );
         }
 
+        if let None = self.get_account_by_id(&block.miner) {
+            return Err("The block proposed has a non-existent miner account.".into());
+        }
+
+        if let Err(e) = self.compensate_miner(&block.miner) {
+            return Err(
+                format!("The block proposed contains an invalid miner account. {e}").into(),
+            );
+        }
+
         if let Err(e) = self.execute_transactions(&block) {
             return Err(format!("The block proposed contains invalid transactions. {e}").into());
         }
@@ -775,8 +782,10 @@ impl Blockchain {
     /// Function that appends a block to the blockchain.
     pub fn propose_block(
         &mut self,
-        transactions: Vec<Transaction>,
+        public_key: String,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let transactions = self.transaction_mempool.flush();
+
         if transactions.len() == 0 {
             return Err(
                 "There needs to be at least one transaction for a block to be generated.".into(),
@@ -787,7 +796,12 @@ impl Blockchain {
             Some(pb) => Some(pb.hash.clone()),
             None => None,
         };
-        let block_to_append = Block::new(previous_block_hash, transactions, self.difficulty)?;
+        let block_to_append = Block::new(
+            public_key,
+            previous_block_hash,
+            transactions,
+            self.difficulty,
+        )?;
 
         if !block_to_append.verify()? {
             return Err("Failed to produce a valid block.".into());
@@ -826,6 +840,7 @@ pub trait Mine {}
 /// Trait that defines the functions that can mutate the blockchain.
 pub trait WorldState {
     const CREATE_ACCOUNT_MESSAGE: &str = "blocktion";
+    const MINER_COMPENSATION: u128 = 5;
 
     fn account_balance(&self, public_key: &str) -> Option<u128>;
 
@@ -835,6 +850,8 @@ pub trait WorldState {
         to: &str,
         amount: u128,
     ) -> Result<(), Box<dyn Error + Send + Sync>>;
+
+    fn compensate_miner(&mut self, public_key: &str) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     /// Will return a account given it's id if is available
     fn get_account_by_id(&self, public_key: &str) -> Option<&Account>;
@@ -897,6 +914,16 @@ impl WorldState for Blockchain {
         Ok(())
     }
 
+    fn compensate_miner(&mut self, public_key: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        match self.accounts.get_mut(public_key) {
+            Some(account) => {
+                account.tokens += Self::MINER_COMPENSATION;
+                Ok(())
+            }
+            None => return Err("The miner account provided does not exist".into()),
+        }
+    }
+
     fn account_balance(&self, public_key: &str) -> Option<u128> {
         Some(self.accounts.get(public_key)?.tokens)
     }
@@ -925,22 +952,28 @@ mod test {
     fn test_blockchain() -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut blockchain = Blockchain::new(u32::MAX)?;
 
-        for n in 0..100 {
+        for n in 0..1 {
             let keys = Keypair::generate(&mut OsRng);
+
+            let pk: String = keys.public.encode_hex();
 
             let sig = keys.sign(Blockchain::CREATE_ACCOUNT_MESSAGE.as_bytes());
 
-            let transactions = vec![Transaction::new(
-                Data::CreateUserAccount {
-                    public_key: keys.public.encode_hex(),
-                    signature: sig.encode_hex(),
-                },
-                keys.public.encode_hex(),
-                n,
-                &keys,
-            )?];
+            for _ in 0..100 {
+                blockchain
+                    .transaction_mempool
+                    .add_transaction(Transaction::new(
+                        Data::CreateUserAccount {
+                            public_key: pk.clone(),
+                            signature: sig.encode_hex(),
+                        },
+                        pk.clone(),
+                        n,
+                        &keys,
+                    )?)?;
+            }
 
-            blockchain.propose_block(transactions)?;
+            blockchain.propose_block(pk)?;
         }
 
         assert!(blockchain.verify()?);
