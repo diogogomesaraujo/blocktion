@@ -327,26 +327,45 @@ impl DhtBehaviourEvent {
                 );
 
                 match t {
-                    topic::TRANSACTIONS => match from_slice::<Transaction>(&message.data) {
-                        Ok(msg) => {
-                            info!(
-                                "Received transaction gossip ({} bytes) from {:?}.",
-                                message.data.len(),
-                                propagation_source
-                            );
+                    topic::TRANSACTIONS => {
+                        match from_slice::<Transaction>(&message.data) {
+                            Ok(msg) => {
+                                info!(
+                                    "Received transaction gossip ({} bytes) from {:?}.",
+                                    message.data.len(),
+                                    propagation_source
+                                );
 
-                            // Reward honest peer before processing so a valid-but-locally-rejected
-                            // tx does not punish an honest peer.
+                                // Reward honest peer before processing so a valid-but-locally-rejected
+                                // tx does not punish an honest peer.
 
-                            if let Err(e) = runtime.submit_transaction(msg) {
-                                error!("Failed to process gossiped transaction: {e}");
+                                if let Err(e) = runtime.submit_transaction(msg) {
+                                    error!("Failed to process gossiped transaction: {e}");
+                                }
+                            }
+                            Err(e) => {
+                                // Might need to penalize explicitely
+                                error!("Invalid transaction payload: {e}");
+                                let Some(entry) = runtime.state.peers.get_mut(&propagation_source)
+                                else {
+                                    return Err(format!("Unknown peer {propagation_source:?} sent invalid transaction").into());
+                                };
+                                entry.invalid_message_count =
+                                    entry.invalid_message_count.saturating_add(1);
+                                if entry.invalid_message_count >= 5 {
+                                    entry.blacklisted = true;
+                                    runtime.state.local.blacklist_peer(&propagation_source);
+                                    runtime.state.local.save()?;
+                                    runtime
+                                        .swarm
+                                        .behaviour_mut()
+                                        .gossip
+                                        .blacklist_peer(&propagation_source);
+                                    warn!("Blacklisted malicious peer {:?}", propagation_source);
+                                }
                             }
                         }
-                        Err(e) => error!("Invalid transaction payload: {e}"),
-                        // Penalise since malformed payload is always the sender's fault.
-                        // If the peer is persistently malicious, blacklist it so gossipsub
-                        // stops routing their messages entirely. (Might define a count for this type of events)
-                    },
+                    }
 
                     // For Blocks do a simmilar logic
                     topic::BLOCKS => match from_slice::<Block>(&message.data) {
