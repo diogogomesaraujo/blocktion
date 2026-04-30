@@ -1,6 +1,6 @@
 use crate::{
     PUNISH_MALFORMED_BLOCK, PUNISH_UNACCEPTED_BLOCK, REWARD_VALID_BLOCK, blockchain::block::Block,
-    runtime::Runtime, time::now_unix, topic::topic,
+    runtime::Runtime, time::now_unix, topic,
 };
 use libp2p::{
     identify, kad, ping,

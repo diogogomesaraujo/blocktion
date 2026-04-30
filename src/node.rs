@@ -3,7 +3,7 @@ use crate::{
     rpc::{DhtRpc, LISTEN_ON},
     runtime::Runtime,
     state::State,
-    topic::topic,
+    topic,
 };
 use async_trait::async_trait;
 use libp2p::{
@@ -170,10 +170,6 @@ impl DhtRpc for Node {
                 // };
 
                 peer_score.topics.insert(
-                    gossipsub::IdentTopic::new(topic::TRANSACTIONS).hash(),
-                    topic_score.clone(),
-                );
-                peer_score.topics.insert(
                     gossipsub::IdentTopic::new(topic::BLOCKS).hash(),
                     topic_score,
                 );
@@ -191,7 +187,6 @@ impl DhtRpc for Node {
 
                 gossip.with_peer_score(peer_score, thresholds)?;
 
-                gossip.subscribe(&IdentTopic::new(topic::TRANSACTIONS))?;
                 gossip.subscribe(&IdentTopic::new(topic::BLOCKS))?;
 
                 Ok(DhtBehaviour {

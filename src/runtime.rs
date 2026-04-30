@@ -2,7 +2,7 @@ use crate::{
     behaviour::DhtBehaviour,
     blockchain::{block::Block, transaction::Transaction},
     state::State,
-    topic::topic::{BLOCKS, TRANSACTIONS},
+    topic::BLOCKS,
 };
 use libp2p::{PeerId, Swarm};
 use libp2p_gossipsub::IdentTopic;
@@ -20,7 +20,7 @@ impl Runtime {
     }
 
     /// Function validates and appends to chain a block received over gossip protocol.
-    /// If the block is valid it is gossiped along.
+    /// If the block is valid it gossips the block.
     pub fn accept_block(&mut self, block: Block) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.state.blockchain.accept_block(block.clone())?;
         self.swarm
@@ -30,7 +30,7 @@ impl Runtime {
         Ok(())
     }
 
-    /// Validates and adds a transaction to the mempool, then gossips it to peers.
+    /// Validates and adds a transaction to the mempool.
     pub fn submit_transaction(
         &mut self,
         transaction: Transaction,
@@ -46,10 +46,6 @@ impl Runtime {
                 .blockchain
                 .transaction_mempool
                 .add_transaction(transaction.clone())?;
-            self.swarm
-                .behaviour_mut()
-                .gossip
-                .publish(IdentTopic::new(TRANSACTIONS), to_vec(&transaction)?)?;
         }
         Ok(())
     }
