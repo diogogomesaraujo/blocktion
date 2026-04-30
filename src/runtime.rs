@@ -2,7 +2,7 @@ use crate::{
     behaviour::DhtBehaviour,
     blockchain::{block::Block, transaction::Transaction},
     state::State,
-    topic,
+    topic::topic::{BLOCKS, TRANSACTIONS},
 };
 use libp2p::{PeerId, Swarm};
 use libp2p_gossipsub::IdentTopic;
@@ -26,7 +26,7 @@ impl Runtime {
         self.swarm
             .behaviour_mut()
             .gossip
-            .publish(IdentTopic::new(topic::topic::BLOCKS), to_vec(&block)?)?;
+            .publish(IdentTopic::new(BLOCKS), to_vec(&block)?)?;
         Ok(())
     }
 
@@ -46,10 +46,10 @@ impl Runtime {
                 .blockchain
                 .transaction_mempool
                 .add_transaction(transaction.clone())?;
-            self.swarm.behaviour_mut().gossip.publish(
-                IdentTopic::new(topic::topic::TRANSACTIONS),
-                to_vec(&transaction)?,
-            )?;
+            self.swarm
+                .behaviour_mut()
+                .gossip
+                .publish(IdentTopic::new(TRANSACTIONS), to_vec(&transaction)?)?;
         }
         Ok(())
     }
