@@ -652,6 +652,19 @@ impl Blockchain {
     }
 
     pub fn accept_block(&mut self, block: Block) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if !block.verify()? {
+            return Err("The block proposed has an invalid hash.".into());
+        }
+
+        let prev_hash = match self.blocks.last() {
+            Some(b) => b.clone().previous_hash,
+            None => "0".to_string(),
+        };
+
+        if block.previous_hash != prev_hash {
+            return Err("The block proposed does not point to the current chain tip.".into());
+        }
+
         if !block.transactions.iter().fold(true, |acc, t| {
             let has = self.transaction_pool.contains(t);
             self.transaction_pool.remove(t.created_at);

@@ -1,6 +1,11 @@
 use crate::{
-    PUNISH_MALFORMED_BLOCK, PUNISH_UNACCEPTED_BLOCK, REWARD_VALID_BLOCK, blockchain::block::Block,
-    runtime::Runtime, time::now_unix, topic,
+    blockchain::block::Block,
+    reputation::{
+        PUNISH_MALFORMED_BLOCK, PUNISH_PING_FAILURE, PUNISH_UNACCEPTED_BLOCK, REWARD_VALID_BLOCK,
+    },
+    runtime::Runtime,
+    time::now_unix,
+    topic,
 };
 use libp2p::{
     identify, kad, ping,
@@ -79,14 +84,10 @@ impl DhtBehaviourEvent {
                         .behaviour_mut()
                         .gossip
                         .blacklist_peer(&peer_id);
-                    warn!(
-                        "Runtime blacklisted peer {:?} from persistent blacklist",
-                        peer_id
-                    );
+                    warn!("Rejecting blacklisted peer {:?}", peer_id);
                 }
 
                 let now = now_unix()?;
-
                 let entry = runtime.state.peers.entry(peer_id).or_default();
                 if entry.first_seen.is_none() {
                     entry.first_seen = Some(now);
@@ -103,13 +104,11 @@ impl DhtBehaviourEvent {
 
             SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
                 let now = now_unix()?;
-
                 if let Some(cause) = &cause {
-                    warn!("Connection to {:?} closed due to: {:?}", peer_id, cause)
+                    warn!("Connection to {:?} closed due to: {:?}", peer_id, cause);
                 } else {
-                    info!("Connection to {:?} closed cleanly.", peer_id)
+                    info!("Connection to {:?} closed cleanly.", peer_id);
                 }
-
                 if let Some(entry) = runtime.state.peers.get_mut(&peer_id) {
                     entry.last_seen = Some(now);
                 }
@@ -131,7 +130,6 @@ impl DhtBehaviourEvent {
                         "RoutingUpdated peer={peer:?} is_new_peer={is_new_peer} \
                          addresses={addresses:?} bucket_range={bucket_range:?} old_peer={old_peer:?}"
                     );
-
                     let now = now_unix()?;
                     let entry = runtime.state.peers.entry(peer).or_default();
                     if entry.first_seen.is_none() {
@@ -142,7 +140,6 @@ impl DhtBehaviourEvent {
 
                 kad::Event::UnroutablePeer { peer } => {
                     info!("UnroutablePeer peer={peer:?}");
-
                     let now = now_unix()?;
                     let entry = runtime.state.peers.entry(peer).or_default();
                     if entry.first_seen.is_none() {
@@ -153,7 +150,6 @@ impl DhtBehaviourEvent {
 
                 kad::Event::RoutablePeer { peer, address } => {
                     info!("RoutablePeer peer={peer:?} address={address:?}");
-
                     let now = now_unix()?;
                     let entry = runtime.state.peers.entry(peer).or_default();
                     if entry.first_seen.is_none() {
@@ -169,7 +165,6 @@ impl DhtBehaviourEvent {
 
                 kad::Event::PendingRoutablePeer { peer, address } => {
                     info!("PendingRoutablePeer peer={peer:?} address={address:?}");
-
                     let now = now_unix()?;
                     let entry = runtime.state.peers.entry(peer).or_default();
                     if entry.first_seen.is_none() {
@@ -189,7 +184,6 @@ impl DhtBehaviourEvent {
                     step,
                 } => {
                     info!("Kad query id={id:?} stats={stats:?} step={step:?}");
-
                     match result {
                         kad::QueryResult::Bootstrap(Ok(ok)) => {
                             info!("Bootstrap completed: {:?}", ok);
@@ -197,14 +191,12 @@ impl DhtBehaviourEvent {
                         kad::QueryResult::Bootstrap(Err(err)) => {
                             error!("Bootstrap failed: {:?}", err);
                         }
-
                         kad::QueryResult::GetClosestPeers(Ok(ok)) => {
                             info!("Closest peers: {:?}", ok.peers);
                         }
                         kad::QueryResult::GetClosestPeers(Err(err)) => {
                             error!("Couldn't find the node at {:?}.", err.key());
                         }
-
                         _ => {}
                     }
                 }
@@ -215,13 +207,17 @@ impl DhtBehaviourEvent {
                     "Ping event: {}, {}, {:?}.",
                     event.connection, event.peer, event.result
                 );
-
                 let now = now_unix()?;
                 let entry = runtime.state.peers.entry(event.peer).or_default();
                 if entry.first_seen.is_none() {
                     entry.first_seen = Some(now);
                 }
                 entry.last_seen = Some(now);
+
+                if let Err(e) = event.result {
+                    warn!("Ping failed for {:?}: {:?}", event.peer, e);
+                    runtime.adjust_score(&event.peer, PUNISH_PING_FAILURE)?;
+                }
             }
 
             SwarmEvent::Behaviour(DhtBehaviourEvent::Identify(event)) => {
@@ -232,7 +228,6 @@ impl DhtBehaviourEvent {
                         entry.first_seen = Some(now);
                     }
                     entry.last_seen = Some(now);
-
                     for addr in info.listen_addrs {
                         runtime
                             .swarm
@@ -247,37 +242,24 @@ impl DhtBehaviourEvent {
                 propagation_source,
                 message_id,
                 message,
-            })) => {
-                let topic = message.topic.as_str();
+            })) if message.topic.as_str() == topic::BLOCKS => {
                 info!(
-                    "Received gossip message from {:?}, id {:?}, topic {}",
-                    propagation_source, message_id, topic
+                    "Received block gossip from {:?}, id {:?}",
+                    propagation_source, message_id
                 );
 
-                if topic == topic::BLOCKS {
-                    match from_slice::<Block>(&message.data) {
-                        Ok(msg) => {
-                            info!(
-                                "Received block gossip ({} bytes) from {:?}.",
-                                message.data.len(),
-                                propagation_source
-                            );
-
-                            if let Err(e) = runtime.accept_block(msg) {
-                                error!(
-                                    "Failed to process gossiped block from {:?}: {e}",
-                                    propagation_source
-                                );
-                                runtime
-                                    .adjust_score(&propagation_source, PUNISH_UNACCEPTED_BLOCK)?;
-                            } else {
-                                runtime.adjust_score(&propagation_source, REWARD_VALID_BLOCK)?;
-                            }
+                match from_slice::<Block>(&message.data) {
+                    Ok(block) => {
+                        if let Err(e) = runtime.accept_block(block) {
+                            error!("Failed to accept block from {:?}: {e}", propagation_source);
+                            runtime.adjust_score(&propagation_source, PUNISH_UNACCEPTED_BLOCK)?;
+                        } else {
+                            runtime.adjust_score(&propagation_source, REWARD_VALID_BLOCK)?;
                         }
-                        Err(e) => {
-                            error!("Invalid block payload: {e}");
-                            runtime.adjust_score(&propagation_source, PUNISH_MALFORMED_BLOCK)?;
-                        }
+                    }
+                    Err(e) => {
+                        error!("Malformed block from {:?}: {e}", propagation_source);
+                        runtime.adjust_score(&propagation_source, PUNISH_MALFORMED_BLOCK)?;
                     }
                 }
             }
@@ -301,7 +283,7 @@ impl DhtBehaviourEvent {
                 failed_messages,
             })) => {
                 warn!(
-                    "Slow peer {:?}: {:?} failed messages — penalising",
+                    "Slow peer {:?}: {:?} failed messages",
                     peer_id, failed_messages
                 );
             }

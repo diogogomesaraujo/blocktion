@@ -1,6 +1,7 @@
 use crate::{
     behaviour::DhtBehaviour,
     blockchain::{block::Block, transaction::Transaction},
+    reputation::SCORE_BLACKLIST_THRESHOLD,
     state::State,
     topic::BLOCKS,
 };
@@ -8,6 +9,7 @@ use libp2p::{PeerId, Swarm};
 use libp2p_gossipsub::IdentTopic;
 use serde_json::to_vec;
 use std::error::Error;
+use tracing::warn;
 
 pub struct Runtime {
     pub swarm: Swarm<DhtBehaviour>,
@@ -50,7 +52,9 @@ impl Runtime {
         Ok(())
     }
 
-    /// Adjusts a peer's application score by a given delta and syncs it into gossipsub.
+    /// Adjusts a peer's application score by a given delta, syncs it into
+    /// gossipsub, and blacklists the peer if the score falls at or below
+    /// the threshold.
     pub fn adjust_score(
         &mut self,
         peer_id: &PeerId,
@@ -58,10 +62,21 @@ impl Runtime {
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let entry = self.state.peers.entry(peer_id.clone()).or_default();
         entry.application_score += delta;
+        let score = entry.application_score;
+
         self.swarm
             .behaviour_mut()
             .gossip
-            .set_application_score(peer_id, entry.application_score);
+            .set_application_score(peer_id, score);
+
+        if score <= SCORE_BLACKLIST_THRESHOLD {
+            warn!("Blacklisting peer {:?} (score={})", peer_id, score);
+            self.swarm.behaviour_mut().gossip.blacklist_peer(peer_id);
+            if let Some(entry) = self.state.peers.get_mut(peer_id) {
+                entry.blacklisted = true;
+            }
+        }
+
         Ok(())
     }
 
@@ -71,13 +86,7 @@ impl Runtime {
             .state
             .peers
             .iter()
-            .filter_map(|(id, info)| {
-                if info.blacklisted {
-                    Some(id.clone())
-                } else {
-                    None
-                }
-            })
+            .filter_map(|(id, info)| if info.blacklisted { Some(*id) } else { None })
             .collect();
 
         for peer_id in blacklisted {

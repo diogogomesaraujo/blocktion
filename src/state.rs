@@ -1,4 +1,4 @@
-use crate::{INITIAL_PEER_SCORE, blockchain::Blockchain, time::Timestamp};
+use crate::{blockchain::Blockchain, reputation::INITIAL_PEER_SCORE, time::Timestamp};
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
