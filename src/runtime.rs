@@ -65,10 +65,10 @@ impl Runtime {
     /// it with default values and adjusts the application score by the delta.
     pub fn adjust_score(
         &mut self,
-        peer_id: PeerId,
+        peer_id: &PeerId,
         delta: f64,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let entry = self.state.peers.entry(peer_id).or_default();
+        let entry = self.state.peers.entry(peer_id.clone()).or_default();
         entry.application_score = entry.application_score + delta;
         self.swarm
             .behaviour_mut()

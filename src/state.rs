@@ -28,7 +28,6 @@ pub struct PeerInfo {
     pub last_seen: Option<Timestamp>,
     pub session_count: u32,
     pub blacklisted: bool,
-    pub invalid_message_count: u32,
     pub application_score: f64,
 }
 
@@ -39,7 +38,6 @@ impl Default for PeerInfo {
             last_seen: None,
             session_count: 0,
             blacklisted: false,
-            invalid_message_count: 0,
             application_score: INITIAL_PEER_SCORE,
         }
     }
