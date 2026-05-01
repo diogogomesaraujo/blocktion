@@ -247,12 +247,19 @@ pub mod transaction {
         CreateUserAccount {
             public_key: String,
         },
-        TransferTokens {
+        Bid {
+            auction_id: String,
             from: String,
-            to: String,
             amount: u64,
         },
-        // add more and adapt for auction
+        CreateAuction {
+            auction_id: String,
+            from: String,
+            start_amount: u64,
+        },
+        StopAuction {
+            auction_id: String,
+        },
     }
 
     impl Transaction {
@@ -340,9 +347,7 @@ pub mod transaction {
         ) -> Result<(), Box<dyn Error + Send + Sync>> {
             match &self.record {
                 Data::CreateUserAccount { public_key } => blockchain.create_account(public_key)?,
-                Data::TransferTokens { from, to, amount } => {
-                    blockchain.transfer_funds(from, to, *amount)?
-                }
+                _ => {}
             };
 
             Ok(())
@@ -467,13 +472,10 @@ pub mod transaction {
 pub mod account {
     use std::error::Error;
 
-    const INITIAL_TOKEN_COUNT: u64 = 5;
-
     /// Struct that defines an account that can either be a user managed account or a smart contract operating independently.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct Account {
         pub kind: Kind,
-        pub tokens: u64,
         pub nonce: u64,
         pub public_key: String,
     }
@@ -490,7 +492,6 @@ pub mod account {
                 kind,
                 nonce: 0,
                 public_key,
-                tokens: INITIAL_TOKEN_COUNT,
             })
         }
 
@@ -679,12 +680,6 @@ impl Blockchain {
             return Err("The block proposed has a non-existent miner account.".into());
         }
 
-        if let Err(e) = self.compensate_miner(&block.miner) {
-            return Err(
-                format!("The block proposed contains an invalid miner account. {e}").into(),
-            );
-        }
-
         if let Err(e) = self.execute_transactions(&block) {
             return Err(format!("The block proposed contains invalid transactions. {e}").into());
         }
@@ -841,25 +836,11 @@ pub trait Mine {}
 /// Trait that defines the functions that can mutate the blockchain.
 pub trait WorldState {
     const CREATE_ACCOUNT_MESSAGE: &str = "blocktion";
-    const MINER_COMPENSATION: u64 = 5;
 
-    fn account_balance(&self, public_key: &str) -> Option<u64>;
-
-    fn transfer_funds(
-        &mut self,
-        from: &str,
-        to: &str,
-        amount: u64,
-    ) -> Result<(), Box<dyn Error + Send + Sync>>;
-
-    fn compensate_miner(&mut self, public_key: &str) -> Result<(), Box<dyn Error + Send + Sync>>;
-
-    /// Will return a account given it's id if is available
     fn get_account_by_id(&self, public_key: &str) -> Option<&Account>;
 
     fn get_account_by_id_mut(&mut self, public_key: &str) -> Option<&mut Account>;
 
-    /// Will add a new account
     fn create_account(&mut self, public_key: &str) -> Result<(), Box<dyn Error + Send + Sync>>;
 }
 
@@ -870,50 +851,6 @@ impl WorldState for Blockchain {
             Account::new(account::Kind::User, public_key.to_string())?,
         );
         Ok(())
-    }
-
-    fn transfer_funds(
-        &mut self,
-        from: &str,
-        to: &str,
-        amount: u64,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        match (self.get_account_by_id(from), self.get_account_by_id(to)) {
-            (Some(f), Some(_)) => {
-                if f.tokens >= amount {
-                    let from = match self.get_account_by_id_mut(from) {
-                        Some(from) => from,
-                        None => return Err("From account does not exist.".into()),
-                    };
-                    from.tokens -= amount;
-
-                    let to = match self.get_account_by_id_mut(to) {
-                        Some(from) => from,
-                        None => return Err("To account does not exist.".into()),
-                    };
-                    to.tokens += amount;
-                } else {
-                    return Err("Not enough funds.".into());
-                }
-            }
-            _ => return Err("Invalid accounts.".into()),
-        };
-
-        Ok(())
-    }
-
-    fn compensate_miner(&mut self, public_key: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
-        match self.accounts.get_mut(public_key) {
-            Some(account) => {
-                account.tokens += Self::MINER_COMPENSATION;
-                Ok(())
-            }
-            None => return Err("The miner account provided does not exist".into()),
-        }
-    }
-
-    fn account_balance(&self, public_key: &str) -> Option<u64> {
-        Some(self.accounts.get(public_key)?.tokens)
     }
 
     fn get_account_by_id(&self, public_key: &str) -> Option<&Account> {
