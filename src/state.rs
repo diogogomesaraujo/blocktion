@@ -27,7 +27,6 @@ pub struct PeerInfo {
     pub session_count: u32,
     pub blacklisted: bool,
     pub application_score: f64,
-    pub orphan_blocks_sent: u32,
 }
 
 impl Default for PeerInfo {
@@ -38,7 +37,6 @@ impl Default for PeerInfo {
             session_count: 0,
             blacklisted: false,
             application_score: INITIAL_PEER_SCORE,
-            orphan_blocks_sent: 0,
         }
     }
 }
