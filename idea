@@ -10,3 +10,9 @@ dht:
 blockchain on join -> boot node gives the chain
 delete all logic regarding stores store
 dht for peer discovery
+
+
+quando um node faz bootstrap manda tb uma gRPC a pedir a blockchain e constroi o seu estado com a resposta.
+o bootstrap node quando recebe uma connecção (connection established) envia a blockchain ao peer.
+o peer dá stall enquanto espera a resposta -> simples await
+o bootstrap node envia a blockchain assincronamente.
