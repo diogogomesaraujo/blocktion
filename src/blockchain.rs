@@ -370,12 +370,12 @@ pub mod transaction {
     }
 
     /// Type that implements the queue of transactions to be executed and published as a block,
-    /// constructed from the mempool and sorted by timestamp.
+    /// constructed from the mempool and sorted by id.
     pub type TransactionQueue = Vec<Transaction>;
 
-    /// Struct that temporarily holds unexecuted transactions mapped by timestamp.
+    /// Struct that temporarily holds unexecuted transactions mapped by id.
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct TransactionPool(HashMap<Timestamp, Transaction>);
+    pub struct TransactionPool(HashMap<String, Transaction>);
 
     impl TransactionPool {
         /// Function that creates an empty mempool.
@@ -384,18 +384,19 @@ pub mod transaction {
         }
 
         /// Function to get the current mempool.
-        pub fn get(&self) -> &HashMap<Timestamp, Transaction> {
+        pub fn get(&self) -> &HashMap<String, Transaction> {
             &self.0
         }
 
-        /// Function that sorts the mempool by timestamp mapping it to a queue of transactions,
+        /// Function that sorts the mempool by timestamp mapping it to a queue of transactions.
         fn to_sorted_queue(self) -> TransactionQueue {
-            let mut v = self
-                .0
-                .into_iter()
-                .collect::<Vec<(Timestamp, Transaction)>>();
-            v.sort_by(|a, b| a.0.cmp(&b.0));
-            v.into_iter().map(|(_, t)| t).collect::<TransactionQueue>()
+            let mut v = self.0.into_values().collect::<Vec<Transaction>>();
+            v.sort_by(|a, b| {
+                a.created_at
+                    .cmp(&b.created_at)
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+            v
         }
 
         /// Function that gets the current length of the mempool.
@@ -404,8 +405,8 @@ pub mod transaction {
         }
 
         /// Function that removes a transaction from the transaction pool.
-        pub fn remove(&mut self, timestamp: Timestamp) {
-            self.0.remove(&timestamp);
+        pub fn remove(&mut self, id: String) {
+            self.0.remove(&id);
         }
 
         /// Function that adds a transaction to the mempool.
@@ -413,7 +414,7 @@ pub mod transaction {
             &mut self,
             transaction: Transaction,
         ) -> Result<(), Box<dyn Error + Send + Sync>> {
-            self.0.insert(transaction.created_at, transaction);
+            self.0.insert(transaction.id.clone(), transaction);
             Ok(())
         }
 
@@ -426,8 +427,7 @@ pub mod transaction {
 
         /// Function that checks if a transaction is in the pool.
         pub fn contains(&self, transaction: &Transaction) -> bool {
-            self.0.contains_key(&transaction.created_at)
-                && self.0[&transaction.created_at] == *transaction
+            self.0.contains_key(&transaction.id) && self.0[&transaction.id] == *transaction
         }
     }
 
@@ -680,7 +680,7 @@ impl Blockchain {
 
         if !block.transactions.iter().fold(true, |acc, t| {
             let has = self.transaction_pool.contains(t);
-            self.transaction_pool.remove(t.created_at);
+            self.transaction_pool.remove(t.id.clone());
             acc && has
         }) {
             return Err(
@@ -1039,10 +1039,9 @@ mod test {
     fn test_pool_remove_deletes_transaction() -> Result<(), Box<dyn Error + Send + Sync>> {
         let k = make_keypair();
         let t = signed_create_account_tx(&k, 0)?;
-        let ts = t.created_at;
         let mut pool = TransactionPool::new();
         pool.add_transaction(t.clone())?;
-        pool.remove(ts);
+        pool.remove(t.id.clone());
         assert_eq!(pool.len(), 0);
         assert!(!pool.contains(&t));
         Ok(())
