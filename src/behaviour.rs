@@ -374,13 +374,15 @@ impl DhtBehaviourEvent {
                     request_response::Message::Request {
                         request, channel, ..
                     } => {
-                        info!("Direct request from {:?}: {:?}", peer, request);
                         let response = match request {
-                            Request::GetFullBlockchain => Response::Blocks(
-                                runtime.state.read().await.blockchain.blocks.clone(),
-                            ),
+                            Request::GetFullBlockchain => {
+                                info!("Peer {:?} requested full blockchain", peer);
+                                let blocks = runtime.state.read().await.blockchain.blocks.clone();
+                                Response::Blocks(blocks)
+                            }
                             Request::GetFullBlockchainHash => {
                                 // consider saving blockchain hashes in Blockchain
+                                info!("Peer {:?} requested full chain of hashes", peer);
                                 let hashes = runtime
                                     .state
                                     .read()
@@ -404,9 +406,13 @@ impl DhtBehaviourEvent {
                         }
                     }
                     request_response::Message::Response { response, .. } => {
-                        info!("Direct response from {:?}: {:?}", peer, response);
                         match response {
                             Response::Blocks(blocks) => {
+                                info!(
+                                    "Received full blockchain from {:?} (lenght = {:?})",
+                                    peer,
+                                    blocks.len()
+                                );
                                 let blocks = blocks.clone();
                                 match runtime.validate_blockchain(blocks).await {
                                     Ok(validated) => {
@@ -434,6 +440,11 @@ impl DhtBehaviourEvent {
                                 // assess and do whatever
                                 // if trusted maybe try to understand if our blockchain isn't main one and replace
                                 // if not trusted and disseminating a malicious blockchain lower reputation score
+                                info!(
+                                    "Received full chain of hashes from {:?} (lenght = {:?})",
+                                    peer,
+                                    hashes.len()
+                                );
                                 let h: Vec<String> = runtime
                                     .state
                                     .read()
