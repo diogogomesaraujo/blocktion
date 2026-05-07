@@ -4,6 +4,7 @@ use crate::{
         PUNISH_MALFORMED_BLOCK, PUNISH_PING_FAILURE, PUNISH_UNACCEPTED_BLOCK, REWARD_VALID_BLOCK,
     },
     runtime::Runtime,
+    state::Stage,
     time::now_unix,
     topic,
 };
@@ -128,7 +129,7 @@ impl DhtBehaviourEvent {
                     .kad
                     .add_address(&peer_id, endpoint.get_remote_address().clone());
 
-                if !runtime.state.read().await.initialized
+                if runtime.state.read().await.stage == Stage::JustCreated
                     && runtime.swarm.connected_peers().next().is_some()
                 {
                     runtime
@@ -137,7 +138,7 @@ impl DhtBehaviourEvent {
                         .request_response
                         .send_request(&peer_id, Request::GetFullBlockchain);
 
-                    runtime.state.write().await.initialized = true;
+                    runtime.state.write().await.stage = Stage::RequestedBlockchain;
 
                     info!("Requested full blockchain from {:?}", peer_id);
                 }
@@ -410,10 +411,25 @@ impl DhtBehaviourEvent {
                                 // if accepted replace blockhain in state
                                 // later send to acceptance state and only after receiving 2 hashes
                                 // from other peers that confirm the blockhain actually replace
+                                runtime.state.write().await.blockchain.blocks = blocks;
+                                runtime.state.write().await.stage = Stage::Initialized;
                             }
                             Response::Hashes(hashes) => {
                                 // verify against blockchain
                                 // assess and do whatever
+                                // if trusted maybe try to understand if our blockchain isn't main one and replace
+                                // if not trusted and disseminating a malicious blockchain lower reputation score
+                                let h: Vec<String> = runtime
+                                    .state
+                                    .read()
+                                    .await
+                                    .blockchain
+                                    .blocks
+                                    .clone()
+                                    .iter()
+                                    .map(|b| b.hash.clone())
+                                    .collect();
+                                // depending on case act accordingly
                             }
                         }
                     }

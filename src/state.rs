@@ -23,7 +23,7 @@ pub struct State {
     pub rpc_address: SocketAddr,
     pub peers: HashMap<PeerId, PeerInfo>,
     pub blockchain: Blockchain,
-    pub initialized: bool,
+    pub stage: Stage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,6 +33,13 @@ pub struct PeerInfo {
     pub session_count: u32,
     pub blacklisted: bool,
     pub application_score: f64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Stage {
+    JustCreated,
+    RequestedBlockchain,
+    Initialized,
 }
 
 impl Default for PeerInfo {
@@ -53,7 +60,7 @@ impl State {
             peers: HashMap::new(),
             blockchain: Blockchain::new(u32::MAX)?, // ??? replace by an initial probe function
             rpc_address: SocketAddr::from_str(rpc_address)?,
-            initialized: false,
+            stage: Stage::JustCreated,
         })
     }
 }
