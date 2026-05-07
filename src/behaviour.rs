@@ -129,9 +129,9 @@ impl DhtBehaviourEvent {
                     .kad
                     .add_address(&peer_id, endpoint.get_remote_address().clone());
 
-                if runtime.state.read().await.stage == Stage::JustCreated
-                    && runtime.swarm.connected_peers().next().is_some()
-                {
+                let stage = runtime.state.read().await.stage.clone();
+
+                if stage == Stage::JustCreated {
                     runtime
                         .swarm
                         .behaviour_mut()
@@ -410,8 +410,11 @@ impl DhtBehaviourEvent {
                                 let blocks = blocks.clone();
                                 match runtime.validate_blockchain(blocks).await {
                                     Ok(validated) => {
-                                        *runtime.state.write().await = validated;
-                                        runtime.state.write().await.stage = Stage::Initialized;
+                                        {
+                                            let mut state = runtime.state.write().await;
+                                            *state = validated;
+                                            state.stage = Stage::Initialized;
+                                        }
                                         info!(
                                             "Accepted valid bootstrap blockchain from {:?}",
                                             peer

@@ -760,7 +760,7 @@ impl Blockchain {
 
         let mut hypothetical_blockchain = self.clone();
         hypothetical_blockchain.execute_transactions(&block_to_append)?;
-        self.blocks.push(block_to_append);
+        hypothetical_blockchain.blocks.push(block_to_append);
         Ok(())
     }
 
