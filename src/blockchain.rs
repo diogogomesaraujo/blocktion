@@ -1368,6 +1368,7 @@ mod test {
         Ok(())
     }
 }
+
 pub mod test_utils {
     use super::ed25519::public_key_to_string;
     use super::transaction::{Data, Transaction};
