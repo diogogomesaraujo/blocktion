@@ -286,12 +286,20 @@ pub mod transaction {
             from: &String,
             nonce: &u32,
         ) -> Result<String, Box<dyn Error + Send + Sync>> {
-            Ok(format!(
-                "{}:{}:{}",
-                serde_json::to_string(&record)?,
-                from,
-                nonce
-            ))
+            #[derive(Serialize)]
+            struct TransactionHeader {
+                record: Data,
+                from: String,
+                nonce: u32,
+            }
+
+            let header = TransactionHeader {
+                record: record.clone(),
+                from: from.clone(),
+                nonce: nonce.clone(),
+            };
+
+            Ok(serde_json::to_string(&header)?)
         }
 
         /// Function that signs the parameters used to construct a transaction.
@@ -464,6 +472,7 @@ pub mod block {
     use std::error::Error;
 
     /// Struct that represents the parameters that form the block's hash.
+    #[derive(Serialize, Deserialize)]
     pub struct Header {
         pub previous_hash: String,
         pub merkle_root: String,
@@ -490,10 +499,7 @@ pub mod block {
 
         /// Function that hashes an unsigned block to form a block that can be appended to the chain.
         pub fn hash(&self) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
-            let input = format!(
-                "{}:{}:{}:{}",
-                self.previous_hash, self.merkle_root, self.nonce, self.timestamp
-            );
+            let input = serde_json::to_string(&self)?;
             Ok(hash::hash(HashFunction::new(), &input))
         }
     }

@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     Ok(())
 }
 
-async fn seed_valid_test_chain(
+async fn _seed_valid_test_chain(
     runtime: &mut Runtime,
     count: u32,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {

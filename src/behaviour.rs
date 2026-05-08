@@ -441,11 +441,11 @@ impl DhtBehaviourEvent {
                                 // if trusted maybe try to understand if our blockchain isn't main one and replace
                                 // if not trusted and disseminating a malicious blockchain lower reputation score
                                 info!(
-                                    "Received full chain of hashes from {:?} (lenght = {:?})",
+                                    "Received full chain of hashes from {:?} (length = {:?})",
                                     peer,
                                     hashes.len()
                                 );
-                                let h: Vec<String> = runtime
+                                let _h: Vec<String> = runtime // ???
                                     .state
                                     .read()
                                     .await
