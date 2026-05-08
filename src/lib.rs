@@ -6,6 +6,7 @@ pub mod node;
 pub mod rpc;
 pub mod runtime;
 pub mod state;
+pub mod tests;
 pub mod time;
 
 pub mod config {
