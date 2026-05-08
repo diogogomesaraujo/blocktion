@@ -550,10 +550,10 @@ pub mod block {
                 self.nonce,
                 self.timestamp,
             )?;
-
             let h = unsigned_block.hash()?;
-
-            Ok(encode_hash(&h) == self.hash && pow::verify(h))
+            Ok(encode_hash(&h) == self.hash
+                && pow::verify(h)
+                && unsigned_block.merkle_root == self.merkle_root)
         }
     }
 
