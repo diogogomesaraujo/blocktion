@@ -212,6 +212,7 @@ pub mod transaction {
             ed25519::{signature_to_string, string_to_public_key, string_to_signature},
             hash::{self, Hashable},
         },
+        state,
         time::{Timestamp, now_unix},
     };
     use blake2::Digest;
@@ -226,7 +227,7 @@ pub mod transaction {
         pub id: String,
         pub record: Data,
         pub from: String,
-        pub created_at: Timestamp,
+        pub timestamp: Timestamp,
         pub nonce: u32,
         pub signature: String,
     }
@@ -252,6 +253,56 @@ pub mod transaction {
         },
     }
 
+    impl Into<state::blockchain::transaction::Record> for Data {
+        fn into(self) -> state::blockchain::transaction::Record {
+            match self {
+                Data::Bid {
+                    auction_id,
+                    from,
+                    amount,
+                } => state::blockchain::transaction::Record::BidRequest(state::blockchain::Bid {
+                    auction_id,
+                    from,
+                    amount,
+                }),
+                Data::CreateAuction {
+                    auction_id,
+                    from,
+                    start_amount,
+                } => state::blockchain::transaction::Record::CreateAuctionRequest(
+                    state::blockchain::CreateAuction {
+                        auction_id,
+                        from,
+                        start_amount,
+                    },
+                ),
+                Data::StopAuction { auction_id } => {
+                    state::blockchain::transaction::Record::StopAuctionRequest(
+                        state::blockchain::StopAuction { auction_id },
+                    )
+                }
+                Data::CreateUserAccount { public_key } => {
+                    state::blockchain::transaction::Record::CreateAccountRequest(
+                        state::blockchain::CreateAccount { public_key },
+                    )
+                }
+            }
+        }
+    }
+
+    impl Into<state::blockchain::Transaction> for Transaction {
+        fn into(self) -> state::blockchain::Transaction {
+            state::blockchain::Transaction {
+                id: self.id,
+                from: self.from,
+                timestamp: self.timestamp,
+                nonce: self.nonce,
+                signature: self.signature,
+                record: Some(self.record.into()),
+            }
+        }
+    }
+
     impl Transaction {
         /// Function that creates a transaction.
         pub fn new(
@@ -274,7 +325,7 @@ pub mod transaction {
                 id,
                 record,
                 from,
-                created_at: now_unix()?,
+                timestamp: now_unix()?,
                 nonce,
                 signature: signature.to_string(),
             })
@@ -382,11 +433,7 @@ pub mod transaction {
         /// Function that sorts the mempool by timestamp mapping it to a queue of transactions.
         fn to_sorted_queue(self) -> TransactionQueue {
             let mut v = self.0.into_values().collect::<Vec<Transaction>>();
-            v.sort_by(|a, b| {
-                a.created_at
-                    .cmp(&b.created_at)
-                    .then_with(|| a.id.cmp(&b.id))
-            });
+            v.sort_by(|a, b| a.timestamp.cmp(&b.timestamp).then_with(|| a.id.cmp(&b.id)));
             v
         }
 
@@ -465,6 +512,7 @@ pub mod block {
             merkle, pow,
             transaction::Transaction,
         },
+        state,
         time::Timestamp,
     };
     use blake2::Digest;
@@ -514,6 +562,20 @@ pub mod block {
         pub nonce: u32,
         pub timestamp: Timestamp,
         pub miner: String,
+    }
+
+    impl Into<state::blockchain::Block> for Block {
+        fn into(self) -> state::blockchain::Block {
+            state::blockchain::Block {
+                previous_hash: self.previous_hash,
+                transactions: self.transactions.into_iter().map(|t| t.into()).collect(),
+                merkle_root: self.merkle_root,
+                hash: self.hash,
+                nonce: self.nonce,
+                timestamp: self.timestamp,
+                miner: self.miner,
+            }
+        }
     }
 
     impl Block {
@@ -659,7 +721,7 @@ impl Blockchain {
                     if prev_h == &acc_prev_h {
                         (
                             acc_prev_h,
-                            Self::choose_hash(&acc_h, h).expect("shouldn't fail"),
+                            Self::choose_hash(&acc_h, h), // todo fix
                         )
                     } else {
                         (prev_h.clone(), h.clone())
@@ -732,13 +794,13 @@ impl Blockchain {
     }
 
     /// Function that chooses the correct bifurcation.
-    fn choose_hash(h1: &str, h2: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
-        let h1b = BigUint::from_bytes_le(&hex::decode(h1)?);
-        let h2b = BigUint::from_bytes_le(&hex::decode(h2)?);
+    pub fn choose_hash(h1: &str, h2: &str) -> String {
+        let h1b = BigUint::from_bytes_le(&hex::decode(h1).expect("first shouldn't fail"));
+        let h2b = BigUint::from_bytes_le(&hex::decode(h2).expect("second shouldn't fail"));
 
         match h1b < h2b {
-            true => Ok(h1.to_string()),
-            false => Ok(h2.to_string()),
+            true => h1.to_string(),
+            false => h2.to_string(),
         }
     }
 
@@ -755,7 +817,7 @@ impl Blockchain {
                     .iter()
                     .find(|(prev_h_temp, h_temp)| prev_h_temp == prev_h && h_temp != h)
                 {
-                    map.insert(prev_h.clone(), Self::choose_hash(h, h_temp)?);
+                    map.insert(prev_h.clone(), Self::choose_hash(h, h_temp));
                 }
                 Ok(())
             })?;
@@ -800,6 +862,10 @@ pub trait WorldState {
     fn get_account_by_id(&self, public_key: &str) -> Option<&Account>;
 
     fn create_account(&mut self, public_key: &str) -> Result<(), Box<dyn Error + Send + Sync>>;
+
+    fn get_block_from_hash(&self, hash: &str) -> Option<&Block>;
+
+    fn get_next_block_hash(&self, hash: &str) -> Option<String>;
 }
 
 impl WorldState for Blockchain {
@@ -818,6 +884,24 @@ impl WorldState for Blockchain {
 
     fn get_account_by_id(&self, public_key: &str) -> Option<&Account> {
         self.accounts.get(&public_key.to_string())
+    }
+
+    fn get_block_from_hash(&self, hash: &str) -> Option<&Block> {
+        self.blocks.iter().find(|b| b.hash == hash)
+    }
+
+    fn get_next_block_hash(&self, hash: &str) -> Option<String> {
+        let nexts = self
+            .blocks
+            .iter()
+            .filter(|b| b.previous_hash == hash)
+            .collect::<Vec<&Block>>();
+        if nexts.is_empty() {
+            return None;
+        }
+        Some(nexts.iter().fold(nexts[0].hash.clone(), |acc, b| {
+            Blockchain::choose_hash(&acc, &b.hash)
+        }))
     }
 }
 
@@ -922,7 +1006,7 @@ pub mod test {
         assert_eq!(queue.len(), 2);
         assert_eq!(pool.len(), 0);
         // verify sorted by timestamp
-        assert!(queue[0].created_at <= queue[1].created_at);
+        assert!(queue[0].timestamp <= queue[1].timestamp);
         Ok(())
     }
 

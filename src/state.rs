@@ -1,9 +1,10 @@
+use crate::blockchain::WorldState;
 use crate::blockchain::transaction::{Data, Transaction};
 use crate::state::blockchain::node_rpc_service_server::{NodeRpcService, NodeRpcServiceServer};
 use crate::state::blockchain::transaction_request::Record;
 use crate::state::blockchain::{
-    BidRequest, CreateAccountRequest, CreateAuctionRequest, StopAuctionRequest, TransactionRequest,
-    TransactionResponse,
+    Bid, BlockInfoRequest, BlockInfoResponse, CreateAccount, CreateAuction, StopAuction,
+    TransactionRequest, TransactionResponse,
 };
 use crate::{blockchain::Blockchain, reputation::INITIAL_PEER_SCORE, time::Timestamp};
 use libp2p::PeerId;
@@ -100,7 +101,7 @@ impl NodeRpcService for Arc<RwLock<State>> {
         };
 
         let transaction = match record {
-            Record::CreateAccountRequest(CreateAccountRequest { public_key }) => {
+            Record::CreateAccountRequest(CreateAccount { public_key }) => {
                 match Transaction::new(
                     Data::CreateUserAccount { public_key },
                     t.from,
@@ -112,7 +113,7 @@ impl NodeRpcService for Arc<RwLock<State>> {
                 }
             }
 
-            Record::CreateAuctionRequest(CreateAuctionRequest {
+            Record::CreateAuctionRequest(CreateAuction {
                 auction_id,
                 from,
                 start_amount,
@@ -132,14 +133,14 @@ impl NodeRpcService for Arc<RwLock<State>> {
                 }
             }
 
-            Record::StopAuctionRequest(StopAuctionRequest { auction_id }) => {
+            Record::StopAuctionRequest(StopAuction { auction_id }) => {
                 match Transaction::new(Data::StopAuction { auction_id }, t.from, 0, &t.signature) {
                     Ok(t) => t,
                     _ => return Ok(Response::new(TransactionResponse { status: 1 })),
                 }
             }
 
-            Record::BidRequest(BidRequest {
+            Record::BidRequest(Bid {
                 auction_id,
                 from,
                 amount,
@@ -177,5 +178,33 @@ impl NodeRpcService for Arc<RwLock<State>> {
         };
 
         Ok(Response::new(TransactionResponse { status: 0 }))
+    }
+
+    async fn block_info(
+        &self,
+        request: Request<BlockInfoRequest>,
+    ) -> Result<Response<BlockInfoResponse>, Status> {
+        let request = request.into_inner();
+        match self
+            .read()
+            .await
+            .blockchain
+            .get_block_from_hash(&request.hash)
+        {
+            Some(block) => Ok(Response::new(BlockInfoResponse {
+                status: 0,
+                block: Some(block.clone().into()),
+                next_block_hash: self
+                    .read()
+                    .await
+                    .blockchain
+                    .get_next_block_hash(&request.hash),
+            })),
+            _ => Ok(Response::new(BlockInfoResponse {
+                status: 1,
+                block: None,
+                next_block_hash: None,
+            })),
+        }
     }
 }
