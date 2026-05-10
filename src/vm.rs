@@ -16,7 +16,7 @@ use tracing::error;
 
 pub const BOOT_NODE_MULTIADDR: &str = "/dnsaddr/bootstrap.libp2p.io";
 pub const LISTEN_ON: &str = "/ip4/0.0.0.0/tcp/0";
-pub const MINE_SPEED: Duration = Duration::from_secs(3);
+pub const NEW_BLOCK_SPEED: Duration = Duration::from_secs(3);
 
 /// Trait that represents the RPC structure used for nodes (both boot nodes and regular ones).
 #[async_trait]
@@ -98,7 +98,7 @@ pub trait VirtualMachine {
                     if let Err(_) = tx.send(block) {
                         error!("Couldn't send the block.");
                     }
-                    sleep(MINE_SPEED).await;
+                    sleep(NEW_BLOCK_SPEED).await;
                 }
             });
         }
@@ -117,11 +117,14 @@ pub trait VirtualMachine {
                 }
 
                 Some(block) = rx.recv() => {
-                    runtime.swarm
+                    tracing::info!("Proposing block: {:?}", block);
+                    while let Err(_) =  runtime.swarm
                         .behaviour_mut()
                         .gossip
-                        .publish(IdentTopic::new(BLOCKS), to_vec(&block)?)?;
-
+                        .publish(IdentTopic::new(BLOCKS), to_vec(&block)?) {
+                            tracing::error!("No other peers to send proposed block to.");
+                            sleep(NEW_BLOCK_SPEED).await;
+                    }
                 }
             }
         }

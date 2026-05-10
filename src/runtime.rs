@@ -7,11 +7,8 @@ use crate::{
     },
     reputation::SCORE_BLACKLIST_THRESHOLD,
     state::State,
-    topic::BLOCKS,
 };
 use libp2p::{PeerId, Swarm};
-use libp2p_gossipsub::IdentTopic;
-use serde_json::to_vec;
 use std::{error::Error, sync::Arc};
 use tokio::sync::RwLock;
 use tracing::warn;
@@ -73,10 +70,8 @@ impl Runtime {
             .await
             .blockchain
             .accept_block(block.clone())?;
-        self.swarm
-            .behaviour_mut()
-            .gossip
-            .publish(IdentTopic::new(BLOCKS), to_vec(&block)?)?;
+        tracing::info!("Accepted block: {:?}", block);
+
         Ok(())
     }
 
