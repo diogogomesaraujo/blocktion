@@ -179,7 +179,7 @@ impl VirtualMachine for BootNode {
                 );
 
                 // placeholder
-                let thresholds = PeerScoreThresholds::default();
+                let _thresholds = PeerScoreThresholds::default();
 
                 // let thresholds = PeerScoreThresholds {
                 //     gossip_threshold: (),
@@ -189,7 +189,7 @@ impl VirtualMachine for BootNode {
                 //     opportunistic_graft_threshold: (),
                 // };
 
-                gossip.with_peer_score(peer_score, thresholds)?;
+                //gossip.with_peer_score(peer_score, thresholds)?;
                 gossip.subscribe(&IdentTopic::new(topic::BLOCKS))?;
 
                 /* Request Response */

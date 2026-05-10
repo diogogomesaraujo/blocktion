@@ -96,7 +96,7 @@ impl DhtBehaviourEvent {
             SwarmEvent::ConnectionEstablished {
                 peer_id, endpoint, ..
             } => {
-                if runtime
+                /*if runtime
                     .state
                     .write()
                     .await
@@ -110,7 +110,7 @@ impl DhtBehaviourEvent {
                         .gossip
                         .blacklist_peer(&peer_id);
                     warn!("Rejecting blacklisted peer {:?}", peer_id);
-                }
+                }*/
 
                 let now = now_unix()?;
                 {

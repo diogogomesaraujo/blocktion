@@ -1,4 +1,5 @@
 use crate::blockchain::WorldState;
+use crate::blockchain::block::Block;
 use crate::blockchain::transaction::{Data, Transaction};
 use crate::state::blockchain::node_rpc_service_server::{NodeRpcService, NodeRpcServiceServer};
 use crate::state::blockchain::transaction_request::Record;
@@ -24,6 +25,7 @@ pub struct State {
     pub rpc_address: SocketAddr,
     pub peers: HashMap<PeerId, PeerInfo>,
     pub blockchain: Blockchain,
+    pub received_blocks: HashMap<String, Block>,
     pub stage: Stage,
 }
 
@@ -60,6 +62,7 @@ impl State {
         Ok(Self {
             peers: HashMap::new(),
             blockchain: Blockchain::new(u32::MAX)?, // ??? replace by an initial probe function
+            received_blocks: HashMap::new(),
             rpc_address: SocketAddr::from_str(rpc_address)?,
             stage: Stage::JustCreated,
         })

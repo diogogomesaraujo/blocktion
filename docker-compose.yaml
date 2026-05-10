@@ -6,6 +6,7 @@ services:
     environment:
       - MODE=boot
       - ARGS=--key-path config/boot1 --kad-port 63358 --rpc-port 3001
+      - DELAY=0
     networks:
       p2p-net:
         ipv4_address: 10.0.0.2
@@ -23,6 +24,7 @@ services:
     environment:
       - MODE=main
       - ARGS=--key-path config/node1 --boot-path /ip4/10.0.0.2/tcp/63358 --boot-key 12D3KooWPJTsznbE7Axq6yXzTcFirB5DVU221mfR1q3eAeRziCWt --rpc-port 3002
+      - DELAY=1
     networks:
       - p2p-net
   node_2:
@@ -34,6 +36,7 @@ services:
     environment:
       - MODE=main
       - ARGS=--key-path config/node2 --boot-path /ip4/10.0.0.2/tcp/63358 --boot-key 12D3KooWPJTsznbE7Axq6yXzTcFirB5DVU221mfR1q3eAeRziCWt --rpc-port 3003
+      - DELAY=4
     networks:
       - p2p-net
   node_3:
@@ -45,6 +48,7 @@ services:
     environment:
       - MODE=main
       - ARGS=--key-path config/node3 --boot-path /ip4/10.0.0.2/tcp/63358 --boot-key 12D3KooWPJTsznbE7Axq6yXzTcFirB5DVU221mfR1q3eAeRziCWt --rpc-port 3004
+      - DELAY=7
     networks:
       - p2p-net
 

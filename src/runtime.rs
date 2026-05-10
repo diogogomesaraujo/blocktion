@@ -65,13 +65,31 @@ impl Runtime {
     /// Function validates and appends to chain a block received over gossip protocol.
     /// If the block is valid it gossips the block.
     pub async fn accept_block(&mut self, block: Block) -> Result<(), Box<dyn Error + Send + Sync>> {
-        self.state
+        let accepted_block = self
+            .state
             .write()
             .await
             .blockchain
-            .accept_block(block.clone())?;
-        tracing::info!("Accepted block: {:?}", block);
-
+            .accept_block(block.clone());
+        if let Err(e) = accepted_block {
+            tracing::error!("{e}");
+            self.state
+                .write()
+                .await
+                .received_blocks
+                .insert(block.previous_hash.clone(), block.clone());
+            tracing::warn!("Storing block temporarily: {:?}", block);
+        } else {
+            tracing::info!("Accepted block: {:?}", block);
+            let mut block = block.clone();
+            while let Some(b) = self.state.read().await.received_blocks.get(&block.hash) {
+                if let Err(_) = self.state.write().await.blockchain.accept_block(b.clone()) {
+                    continue;
+                }
+                block = b.clone();
+                tracing::info!("Accepted block: {:?}", block);
+            }
+        }
         Ok(())
     }
 

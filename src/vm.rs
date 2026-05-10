@@ -1,9 +1,17 @@
 use crate::{
-    behaviour::DhtBehaviourEvent, blockchain::block::Block, runtime::Runtime, state::Runnable,
+    behaviour::DhtBehaviourEvent,
+    blockchain::{
+        block::Block,
+        transaction::{Data, Transaction},
+    },
+    runtime::Runtime,
+    state::Runnable,
     topic::BLOCKS,
 };
 use async_trait::async_trait;
-use libp2p::{StreamProtocol, futures::StreamExt, identity::Keypair};
+use ed25519_dalek_blake2b::Keypair;
+use hex::ToHex;
+use libp2p::{StreamProtocol, futures::StreamExt};
 use libp2p_gossipsub::IdentTopic;
 use serde_json::to_vec;
 use std::{error::Error, str::SplitWhitespace, sync::Arc, time::Duration};
@@ -66,13 +74,13 @@ pub trait VirtualMachine {
     async fn init(
         self,
         ipfs_proto_name: StreamProtocol,
-        key: Keypair,
+        key: libp2p::identity::Keypair,
         rpc_address: &str,
     ) -> Result<Runtime, Box<dyn Error + Send + Sync>>;
 
     async fn run(
         runtime: &mut Runtime,
-        public_key: &str,
+        keys: &Keypair,
         buffer_reader: BufReader<Stdin>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         // rpc thread
@@ -90,7 +98,7 @@ pub trait VirtualMachine {
         {
             let tx = tx.clone();
             let state = runtime.state.clone();
-            let public_key = public_key.to_string();
+            let public_key: String = keys.public.encode_hex();
             tokio::spawn(async move {
                 loop {
                     let block = match state.write().await.blockchain.propose_block(&public_key) {
@@ -104,6 +112,21 @@ pub trait VirtualMachine {
                 }
             });
         }
+
+        runtime
+            .state
+            .write()
+            .await
+            .blockchain
+            .transaction_pool
+            .add_transaction(Transaction::sign(
+                Data::CreateUserAccount {
+                    public_key: keys.public.encode_hex(),
+                },
+                &keys.public.encode_hex::<String>(),
+                0,
+                keys,
+            )?)?;
 
         let mut lines = buffer_reader.lines();
 
@@ -124,7 +147,8 @@ pub trait VirtualMachine {
                         .behaviour_mut()
                         .gossip
                         .publish(IdentTopic::new(BLOCKS), to_vec(&block)?) {
-                            tracing::error!("No other peers to send proposed block to.");
+                            // tracing::error!("No other peers to send proposed block to.");
+                            sleep(Duration::from_secs(1)).await;
                             tx.write().await.send(block)?;
                     }
                 }

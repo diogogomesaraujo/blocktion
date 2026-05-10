@@ -15,4 +15,4 @@ ARG MODE
 ARG ARGS
 
 RUN cargo build --release
-ENTRYPOINT cargo run --bin $MODE --release -- $ARGS
+ENTRYPOINT sleep $DELAY && cargo run --bin $MODE --release -- $ARGS

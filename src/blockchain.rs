@@ -9,7 +9,11 @@
 //! - [Transaction Mempool](https://medium.com/coinmonks/creating-a-blockchain-part-6-transaction-mempool-and-tx-encoding-a1581479449e);
 //! - [Merkle Tree in Blockchain Implementation](https://dsvynarenko.hashnode.dev/designing-blockchain-4-merkle-trees-and-state-verification).
 
-use crate::blockchain::{account::Account, block::Block, transaction::TransactionPool};
+use crate::blockchain::{
+    account::Account,
+    block::Block,
+    transaction::{Data, TransactionPool},
+};
 use blake2::Blake2b512;
 use num_bigint::BigUint;
 use std::{
@@ -95,7 +99,7 @@ pub mod pow {
 
     /// Constant that represents the magic number used to define the difficulty of mineration.
     const TARGET: &[u8] = &[
-        0, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0x0F, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0,
     ];
 
@@ -675,18 +679,33 @@ impl Blockchain {
             return Err("The block proposed has an invalid hash.".into());
         }
 
-        let prev_hash = match self.blocks.last() {
-            Some(b) => b.hash.clone(),
-            None => "0".to_string(),
+        let prev_hash = match self.blocks.is_empty() {
+            false => match self
+                .blocks
+                .iter()
+                .find(|b| b.previous_hash == block.previous_hash)
+            {
+                Some(b) => Some(b.hash.clone()),
+                None => None,
+            },
+            true => Some("0".to_string()),
         };
 
-        if block.previous_hash != prev_hash {
+        if let None = prev_hash {
             return Err("The block proposed does not point to the current chain tip.".into());
         }
 
         if let None = self.get_account_by_id(&block.miner) {
-            return Err("The block proposed has a non-existent miner account.".into());
-        }
+            if let None = block.transactions.iter().find(|t| {
+                if let Data::CreateUserAccount { public_key } = &t.record {
+                    public_key == &block.miner
+                } else {
+                    false
+                }
+            }) {
+                return Err("The block proposed has a non-existent miner account.".into());
+            }
+        };
 
         if let Err(e) = self.execute_transactions(&block) {
             return Err(format!("The block proposed contains invalid transactions. {e}").into());

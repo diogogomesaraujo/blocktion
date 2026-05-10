@@ -1,7 +1,6 @@
 use blocktion::{key::get_key, node::Node, vm::VirtualMachine};
 use clap::Parser;
 use ed25519_dalek_blake2b::Keypair;
-use hex::ToHex;
 use libp2p::{Multiaddr, PeerId, StreamProtocol};
 use rand::rngs::OsRng;
 use std::error::Error;
@@ -61,12 +60,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             &format!("127.0.0.1:{}", args.rpc_port),
         )
         .await?;
-    Node::run(
-        &mut i,
-        &keys.public.encode_hex::<String>(),
-        BufReader::new(stdin()),
-    )
-    .await?;
+    Node::run(&mut i, &keys, BufReader::new(stdin())).await?;
 
     Ok(())
 }

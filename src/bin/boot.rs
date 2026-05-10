@@ -10,7 +10,6 @@ use blocktion::{
 };
 use clap::Parser;
 use ed25519_dalek_blake2b::Keypair;
-use hex::ToHex;
 use libp2p::StreamProtocol;
 use rand::rngs::OsRng;
 use std::error::Error;
@@ -54,16 +53,11 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         )
         .await?;
 
-    _seed_valid_test_chain(&mut i, args.seed_blocks).await?;
+    // _seed_valid_test_chain(&mut i, args.seed_blocks).await?;
 
     let keys = Keypair::generate(&mut OsRng);
 
-    BootNode::run(
-        &mut i,
-        &keys.public.encode_hex::<String>(),
-        BufReader::new(stdin()),
-    )
-    .await?;
+    BootNode::run(&mut i, &keys, BufReader::new(stdin())).await?;
 
     Ok(())
 }
