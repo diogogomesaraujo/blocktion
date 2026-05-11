@@ -675,28 +675,25 @@ impl Blockchain {
     }
 
     fn has_previous_block(&self, previous_hash: &str) -> bool {
-        match self
-            .blocks
-            .iter()
-            .find(|b| b.previous_hash == previous_hash)
-        {
+        if previous_hash == "0" {
+            return true;
+        }
+
+        match self.blocks.iter().find(|b| b.hash == previous_hash) {
             Some(_) => true,
             _ => false,
         }
     }
 
     fn miner_account_exists(&self, block: &Block) -> bool {
-        if let None = self.get_account_by_id(&block.miner) {
-            return false;
+        if let Some(_) = self.get_account_by_id(&block.miner) {
+            return true;
         }
 
-        match block.transactions.iter().find(|t| match &t.record {
+        block.transactions.iter().any(|t| match &t.record {
             Data::CreateUserAccount { public_key } if public_key == &block.miner => true,
             _ => false,
-        }) {
-            Some(_) => true,
-            _ => false,
-        }
+        })
     }
 
     /// Function that accepts a block proposed by another node.
@@ -705,22 +702,21 @@ impl Blockchain {
             return Err("The block proposed has an invalid hash.".into());
         }
 
-        let prev_hash = match self.blocks.is_empty() {
-            true => "0",
-            false => &block.previous_hash,
-        };
-
-        if !self.has_previous_block(prev_hash) {
+        if !self.has_previous_block(&block.previous_hash) {
             return Err("The block proposed does not point to a block in the chain.".into());
         }
 
-        if self.miner_account_exists(&block) {
+        if !self.miner_account_exists(&block) {
             return Err("The block proposed has a non-existent miner account.".into());
         }
 
-        if let Err(e) = self.execute_transactions(&block) {
+        let mut hypothetical_blockchain = self.clone();
+
+        if let Err(e) = hypothetical_blockchain.execute_transactions(&block) {
             return Err(format!("The block proposed contains invalid transactions. {e}").into());
         }
+
+        self.accounts = hypothetical_blockchain.accounts;
 
         self.blocks.push(block);
         Ok(())
@@ -784,21 +780,15 @@ impl Blockchain {
         let mut hypothetical_blockchain = self.clone();
         hypothetical_blockchain.execute_transactions(&block_to_append)?;
 
-        self.accounts = hypothetical_blockchain.accounts;
-        self.blocks.push(block_to_append.clone());
-
         Ok(block_to_append)
     }
 
     /// Function that verifies each block in the blockchain.
     pub fn verify(&self) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let mut previous_hash = "0".to_string();
-
         for block in &self.blocks {
-            if !block.verify()? || previous_hash != block.previous_hash {
+            if !block.verify()? {
                 return Ok(false);
             }
-            previous_hash = block.hash.clone();
         }
         Ok(true)
     }

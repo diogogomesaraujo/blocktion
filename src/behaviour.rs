@@ -422,7 +422,7 @@ impl DhtBehaviourEvent {
                                     peer,
                                     blocks.len()
                                 );
-                                let blocks = blocks.clone();
+                                /*let blocks = blocks.clone();
                                 match runtime.validate_blockchain(blocks).await {
                                     Ok(validated) => {
                                         {
@@ -442,7 +442,7 @@ impl DhtBehaviourEvent {
                                             peer, e
                                         );
                                     }
-                                }
+                                }*/
                             }
                             Response::Hashes(hashes) => {
                                 // verify against blockchain

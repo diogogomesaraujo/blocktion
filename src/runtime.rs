@@ -1,10 +1,6 @@
 use crate::{
     behaviour::DhtBehaviour,
-    blockchain::{
-        block::Block,
-        merkle::root,
-        transaction::{Transaction, TransactionPool},
-    },
+    blockchain::{block::Block, merkle::root, transaction::TransactionPool},
     reputation::SCORE_BLACKLIST_THRESHOLD,
     state::State,
 };
@@ -74,38 +70,19 @@ impl Runtime {
             tracing::warn!("Storing block temporarily: {:?}", block);
         } else {
             tracing::info!("Accepted block: {:?}", block);
-            let mut block = block.clone();
-            while let Some(b) = self.state.read().await.received_blocks.get(&block.hash) {
-                if let Err(_) = self.state.write().await.blockchain.accept_block(b.clone()) {
-                    continue;
-                }
-                block = b.clone();
-                tracing::info!("Accepted block: {:?}", block);
-            }
-        }
-        Ok(())
-    }
 
-    /// Validates and adds a transaction to the mempool.
-    pub async fn submit_transaction(
-        &mut self,
-        transaction: Transaction,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        transaction.verify()?;
-        if !self
-            .state
-            .read()
-            .await
-            .blockchain
-            .transaction_pool
-            .contains(&transaction)
-        {
-            self.state
-                .write()
-                .await
-                .blockchain
-                .transaction_pool
-                .add_transaction(transaction.clone())?;
+            for (prev_h, block) in self.state.read().await.received_blocks.clone() {
+                let accepted_block = self
+                    .state
+                    .write()
+                    .await
+                    .blockchain
+                    .accept_block(block.clone());
+                if let Ok(_) = accepted_block {
+                    tracing::info!("Accepted block: {:?}", block);
+                    self.state.write().await.received_blocks.remove(&prev_h);
+                }
+            }
         }
         Ok(())
     }
