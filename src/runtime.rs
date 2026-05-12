@@ -22,7 +22,7 @@ impl Runtime {
         }
     }
 
-    pub async fn verify_boot_chain(
+    pub async fn process_blocks(
         &mut self,
         _blocks: Vec<Block>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -32,10 +32,6 @@ impl Runtime {
 
         {
             let mut state = self.state.write().await;
-
-            // state.blockchain.blocks.clear();
-            // state.blockchain.longest_chain.clear();
-            // let _ = state.blockchain.transaction_pool.flush();
 
             for block in _blocks {
                 state.blockchain.accept_block(block)?;

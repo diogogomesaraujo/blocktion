@@ -128,17 +128,17 @@ impl VirtualMachine for Node {
                     gossip_config,
                 )?;
 
-                let topic_score = TopicScoreParams::default();
-                let mut peer_score = PeerScoreParams::default();
+                // let topic_score = TopicScoreParams::default();
+                // let mut peer_score = PeerScoreParams::default();
 
-                peer_score.topics.insert(
-                    gossipsub::IdentTopic::new(topic::BLOCKS).hash(),
-                    topic_score,
-                );
+                // peer_score.topics.insert(
+                //     gossipsub::IdentTopic::new(topic::BLOCKS).hash(),
+                //     topic_score,
+                // );
 
-                let thresholds = PeerScoreThresholds::default();
+                // let thresholds = PeerScoreThresholds::default();
 
-                gossip.with_peer_score(peer_score, thresholds)?;
+                // gossip.with_peer_score(peer_score, thresholds)?;
                 gossip.subscribe(&IdentTopic::new(topic::BLOCKS))?;
 
                 /* Request Response */
@@ -175,15 +175,15 @@ impl VirtualMachine for Node {
         let mut runtime = Runtime::new(swarm, state);
         runtime.load_from_local().await?;
 
-        // if let Some(boot) = self.bootstrap_nodes.first() {
-        //     runtime
-        //         .swarm
-        //         .behaviour_mut()
-        //         .request_response
-        //         .send_request(&boot.1, Request::GetFullBlockchain);
+        if let Some(boot) = self.bootstrap_nodes.first() {
+            runtime
+                .swarm
+                .behaviour_mut()
+                .request_response
+                .send_request(&boot.1, Request::GetLongestChain);
 
-        //     info!("Requested bootstrap blockchain from {:?}", boot.1);
-        // }
+            info!("Requested bootstrap blockchain from {:?}", boot.1);
+        }
 
         Ok(runtime)
     }

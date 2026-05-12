@@ -19,8 +19,8 @@ use tracing::{error, info, warn};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Request {
-    GetFullBlockchain,
-    GetFullBlockchainHash,
+    GetLongestChain,
+    GetLongestChainHashes,
     // GetBlockByHash,
 }
 
@@ -303,7 +303,7 @@ impl DhtBehaviourEvent {
                     message,
                 } if message.topic.as_str() == topic::BLOCKS => {
                     info!(
-                        "Received block gossip from {:?}, id {:?}",
+                        "Received block from {:?}, id {:?}",
                         propagation_source, message_id
                     );
 
@@ -369,8 +369,8 @@ impl DhtBehaviourEvent {
                         request, channel, ..
                     } => {
                         let response = match request {
-                            Request::GetFullBlockchain => {
-                                info!("Peer {:?} requested full blockchain", peer);
+                            Request::GetLongestChain => {
+                                info!("Peer {:?} requested bootstrap blocks", peer);
                                 let longest_chain =
                                     runtime.state.read().await.blockchain.longest_chain.clone();
                                 let blocks = runtime.state.read().await.blockchain.blocks.clone();
@@ -378,7 +378,7 @@ impl DhtBehaviourEvent {
                                     longest_chain.iter().map(|h| blocks[h].clone()).collect(),
                                 )
                             }
-                            Request::GetFullBlockchainHash => {
+                            Request::GetLongestChainHashes => {
                                 // consider saving blockchain hashes in Blockchain
                                 info!("Peer {:?} requested full chain of hashes", peer);
                                 let hashes =
@@ -398,21 +398,18 @@ impl DhtBehaviourEvent {
                     request_response::Message::Response { response, .. } => {
                         match response {
                             Response::Blocks(blocks) => {
-                                info!(
-                                    "Received full blockchain from {:?} (lenght = {:?})",
-                                    peer,
-                                    blocks.len()
-                                );
-                                match runtime.verify_boot_chain(blocks.clone()).await {
+                                info!("Received bootstrap blocks from {:?}", peer);
+                                match runtime.process_blocks(blocks.clone()).await {
                                     Ok(()) => {
                                         info!(
-                                            "Accepted valid bootstrap blockchain from {:?}",
-                                            peer
+                                            "Accepted {:?} valid bootstrap blocks from {:?}",
+                                            peer,
+                                            blocks.len()
                                         );
                                     }
                                     Err(e) => {
                                         error!(
-                                            "Rejected invalid bootstrap blockchain from {:?}: {}",
+                                            "Rejected invalid bootstrap blocks from {:?}: {}",
                                             peer, e
                                         );
                                     }
@@ -424,7 +421,7 @@ impl DhtBehaviourEvent {
                                 // if trusted maybe try to understand if our blockchain isn't main one and replace
                                 // if not trusted and disseminating a malicious blockchain lower reputation score
                                 info!(
-                                    "Received full chain of hashes from {:?} (length = {:?})",
+                                    "Received chain of hashes from {:?} (length = {:?})",
                                     peer,
                                     hashes.len()
                                 );
