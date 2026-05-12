@@ -1,8 +1,10 @@
 use crate::{
     behaviour::DhtBehaviour, blockchain::block::Block, reputation::SCORE_BLACKLIST_THRESHOLD,
-    state::State,
+    state::State, topic::BLOCKS,
 };
 use libp2p::{PeerId, Swarm};
+use libp2p_gossipsub::IdentTopic;
+use serde_json::to_vec;
 use std::{error::Error, sync::Arc};
 use tokio::sync::RwLock;
 use tracing::warn;
@@ -51,6 +53,11 @@ impl Runtime {
             Ok(_) => {
                 tracing::info!("Accepted block: {:?}", block);
 
+                self.swarm
+                    .behaviour_mut()
+                    .gossip
+                    .publish(IdentTopic::new(BLOCKS), to_vec(&block)?)?;
+
                 for (prev_h, block) in self.state.read().await.received_blocks.clone() {
                     let accepted_block = self
                         .state
@@ -62,6 +69,11 @@ impl Runtime {
                     if let Ok(_) = accepted_block {
                         tracing::info!("Accepted block: {:?}", block);
                         self.state.write().await.received_blocks.remove(&prev_h);
+
+                        self.swarm
+                            .behaviour_mut()
+                            .gossip
+                            .publish(IdentTopic::new(BLOCKS), to_vec(&block)?)?;
                     }
                 }
             }
