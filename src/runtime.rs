@@ -7,7 +7,7 @@ use libp2p_gossipsub::IdentTopic;
 use serde_json::to_vec;
 use std::{error::Error, sync::Arc};
 use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::warn;
 
 pub struct Runtime {
     pub swarm: Swarm<DhtBehaviour>,

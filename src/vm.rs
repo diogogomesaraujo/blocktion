@@ -84,6 +84,20 @@ pub trait VirtualMachine {
         keys: Keypair,
         buffer_reader: BufReader<Stdin>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // show blockchain
+        {
+            let state = runtime.state.clone();
+            tokio::spawn(async move {
+                loop {
+                    sleep(Duration::from_secs(10)).await;
+                    tracing::info!(
+                        "Blockchain state is currently: {:?}",
+                        state.read().await.blockchain.longest_chain
+                    );
+                }
+            });
+        }
+
         // rpc thread
 
         {
