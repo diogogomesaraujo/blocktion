@@ -64,7 +64,7 @@ impl VirtualMachine for Node {
         key: Keypair,
         rpc_address: &str,
     ) -> Result<Runtime, Box<dyn Error + Send + Sync>> {
-        let state = State::init(rpc_address, false)?;
+        let state = State::init(rpc_address)?;
 
         let mut swarm = SwarmBuilder::with_existing_identity(key)
             .with_tokio()
@@ -181,8 +181,6 @@ impl VirtualMachine for Node {
                 .behaviour_mut()
                 .request_response
                 .send_request(&boot.1, Request::GetLongestChain);
-
-            info!("Requested bootstrap blockchain from {:?}", boot.1);
         }
 
         Ok(runtime)
