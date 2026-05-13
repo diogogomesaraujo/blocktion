@@ -1,10 +1,11 @@
 use blocktion::{
     state::blockchain::{LongestChainRequest, node_rpc_service_client::NodeRpcServiceClient},
-    time::Timestamp,
+    time::{Timestamp, now_unix},
 };
 use clap::Parser;
 use priority_queue::PriorityQueue;
-use std::{collections::HashMap, error::Error};
+use std::{collections::HashMap, error::Error, sync::Arc};
+use tokio::sync::RwLock;
 use tonic::{Request, transport::Channel};
 
 type Client = NodeRpcServiceClient<Channel>;
@@ -32,6 +33,16 @@ struct BackendState {
     auctions: HashMap<String, Auction>,
 }
 
+impl BackendState {
+    async fn new(client: &mut Client) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        Ok(Self {
+            chain_state: ChainState::new(client).await?,
+            accounts: HashMap::new(),
+            auctions: HashMap::new(),
+        })
+    }
+}
+
 struct Account {
     id: String,
     funds: Currency,
@@ -39,13 +50,70 @@ struct Account {
 
 struct Auction {
     id: String,
-    bids: PriorityQueue<Bid, Currency>,
+    creator_id: String,
+    bids: PriorityQueue<Bid, (Currency, usize)>,
     stop_time: Timestamp,
 }
 
+impl Auction {
+    fn new(id: &str, creator_id: &str, stop_time: Timestamp) -> Self {
+        Self {
+            id: id.to_string(),
+            creator_id: creator_id.to_string(),
+            bids: PriorityQueue::new(),
+            stop_time,
+        }
+    }
+
+    fn push(&mut self, bid: Bid) {
+        self.bids.push(bid.clone(), (bid.amount, bid.block_idx));
+    }
+}
+
+#[derive(Hash, PartialEq, PartialOrd, Eq, Clone)]
 struct Bid {
     from: String,
     amount: Currency,
+    block_idx: usize,
+    timestamp: Timestamp,
+}
+
+impl Bid {
+    fn new(
+        from: &str,
+        amount: Currency,
+        block_idx: usize,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        Ok(Self {
+            from: from.to_string(),
+            amount,
+            block_idx,
+            timestamp: now_unix()?,
+        })
+    }
+}
+
+impl Ord for Bid {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (self.amount, self.block_idx).cmp(&(other.amount, other.block_idx))
+    }
+}
+
+struct Backend {
+    client: Client,
+    state: Arc<RwLock<BackendState>>,
+}
+
+impl Backend {
+    async fn init(address: &str) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        let mut client = NodeRpcServiceClient::connect(address.to_string()).await?;
+        let state = Arc::new(RwLock::new(BackendState::new(&mut client).await?));
+        Ok(Self { client, state })
+    }
+
+    async fn run(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Ok(())
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -72,7 +140,8 @@ async fn request_longest_chain(
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let args = Args::parse();
 
-    let client = NodeRpcServiceClient::connect(args.node_address).await?;
+    let backend = Backend::init(&args.node_address).await?;
+    backend.run().await?;
 
     Ok(())
 }
