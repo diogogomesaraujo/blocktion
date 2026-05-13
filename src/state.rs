@@ -5,7 +5,7 @@ use crate::state::blockchain::node_rpc_service_server::{NodeRpcService, NodeRpcS
 use crate::state::blockchain::transaction_request::Record;
 use crate::state::blockchain::{
     Bid, BlockInfoRequest, BlockInfoResponse, CreateAccount, CreateAuction, LongestChainRequest,
-    LongestChainResponse, StopAuction, TransactionRequest, TransactionResponse,
+    LongestChainResponse, TransactionRequest, TransactionResponse,
 };
 use crate::{blockchain::Blockchain, reputation::INITIAL_PEER_SCORE, time::Timestamp};
 use libp2p::PeerId;
@@ -134,13 +134,6 @@ impl NodeRpcService for Arc<RwLock<State>> {
                     0,
                     &t.signature,
                 ) {
-                    Ok(t) => t,
-                    _ => return Ok(Response::new(TransactionResponse { status: 1 })),
-                }
-            }
-
-            Record::StopAuctionRequest(StopAuction { auction_id }) => {
-                match Transaction::new(Data::StopAuction { auction_id }, t.from, 0, &t.signature) {
                     Ok(t) => t,
                     _ => return Ok(Response::new(TransactionResponse { status: 1 })),
                 }

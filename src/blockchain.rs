@@ -251,9 +251,6 @@ pub mod transaction {
             start_amount: u64,
             stop_time: Timestamp,
         },
-        StopAuction {
-            auction_id: String,
-        },
     }
 
     impl Into<transaction_request::Record> for Data {
@@ -281,11 +278,7 @@ pub mod transaction {
                         stop_time,
                     },
                 ),
-                Data::StopAuction { auction_id } => {
-                    transaction_request::Record::StopAuctionRequest(
-                        state::blockchain::StopAuction { auction_id },
-                    )
-                }
+
                 Data::CreateUserAccount { public_key } => {
                     transaction_request::Record::CreateAccountRequest(
                         state::blockchain::CreateAccount { public_key },
@@ -320,11 +313,6 @@ pub mod transaction {
                         stop_time,
                     },
                 ),
-                Data::StopAuction { auction_id } => {
-                    state::blockchain::transaction::Record::StopAuctionRequest(
-                        state::blockchain::StopAuction { auction_id },
-                    )
-                }
                 Data::CreateUserAccount { public_key } => {
                     state::blockchain::transaction::Record::CreateAccountRequest(
                         state::blockchain::CreateAccount { public_key },
