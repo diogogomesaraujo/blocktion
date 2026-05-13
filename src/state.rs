@@ -4,8 +4,8 @@ use crate::blockchain::transaction::{Data, Transaction};
 use crate::state::blockchain::node_rpc_service_server::{NodeRpcService, NodeRpcServiceServer};
 use crate::state::blockchain::transaction_request::Record;
 use crate::state::blockchain::{
-    Bid, BlockInfoRequest, BlockInfoResponse, CreateAccount, CreateAuction, StopAuction,
-    TransactionRequest, TransactionResponse,
+    Bid, BlockInfoRequest, BlockInfoResponse, CreateAccount, CreateAuction, LongestChainRequest,
+    LongestChainResponse, StopAuction, TransactionRequest, TransactionResponse,
 };
 use crate::{blockchain::Blockchain, reputation::INITIAL_PEER_SCORE, time::Timestamp};
 use libp2p::PeerId;
@@ -83,6 +83,16 @@ pub mod blockchain {
 
 #[tonic::async_trait]
 impl NodeRpcService for Arc<RwLock<State>> {
+    async fn longest_chain(
+        &self,
+        _request: Request<LongestChainRequest>,
+    ) -> Result<Response<LongestChainResponse>, Status> {
+        Ok(Response::new(LongestChainResponse {
+            status: 1,
+            longest_chain: self.read().await.blockchain.longest_chain.clone(),
+        }))
+    }
+
     async fn transaction(
         &self,
         request: Request<TransactionRequest>,

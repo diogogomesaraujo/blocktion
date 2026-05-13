@@ -38,6 +38,8 @@ message BlockInfoRequest {
   string hash = 1;
 }
 
+message LongestChainRequest {}
+
 // Response Types
 
 enum RequestStatus {
@@ -79,7 +81,13 @@ message BlockInfoResponse {
   optional string next_block_hash = 3;
 }
 
+message LongestChainResponse {
+  RequestStatus status = 1;
+  repeated string longest_chain = 2;
+}
+
 service NodeRpcService {
   rpc Transaction(TransactionRequest) returns (TransactionResponse);
   rpc BlockInfo(BlockInfoRequest) returns (BlockInfoResponse);
+  rpc LongestChain(LongestChainRequest) returns (LongestChainResponse);
 }
