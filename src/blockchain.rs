@@ -827,7 +827,7 @@ impl Blockchain {
 
         // prune
 
-        self.prune(&branch_map);
+        self.prune(&branch_map)?;
 
         Ok(())
     }
@@ -840,7 +840,7 @@ impl Blockchain {
         if self.longest_chain.len() < EXECUTE_AFTER_N_BLOCKS {
             return Ok(());
         }
-        // TODO;
+        // TODO:
         // take commit pointer (longest chain until EXECUTE_AFTER_N_BLOCKS from end)
         // take the branch comprising from genesis to commit
         // if there is a branch starting at any of those blocks
