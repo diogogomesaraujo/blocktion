@@ -72,7 +72,6 @@ message Block {
 message BlockInfoResponse {
   RequestStatus status = 1;
   optional Block block = 2;
-  optional string next_block_hash = 3;
 }
 
 message LongestChainResponse {

@@ -790,17 +790,11 @@ impl Blockchain {
 /// Trait that defines the functions that can mutate the blockchain.
 pub trait WorldState {
     fn get_block_from_hash(&self, hash: &str) -> Option<&Block>;
-
-    fn get_next_block_hash(&self, hash: &str) -> Option<String>;
 }
 
 impl WorldState for Blockchain {
-    fn get_block_from_hash(&self, _hash: &str) -> Option<&Block> {
-        todo!()
-    }
-
-    fn get_next_block_hash(&self, _hash: &str) -> Option<String> {
-        todo!()
+    fn get_block_from_hash(&self, hash: &str) -> Option<&Block> {
+        self.blocks.get(hash)
     }
 }
 

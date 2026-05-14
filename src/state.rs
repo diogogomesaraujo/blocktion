@@ -88,7 +88,7 @@ impl NodeRpcService for Arc<RwLock<State>> {
         _request: Request<LongestChainRequest>,
     ) -> Result<Response<LongestChainResponse>, Status> {
         Ok(Response::new(LongestChainResponse {
-            status: 1,
+            status: 0,
             longest_chain: self.read().await.blockchain.longest_chain.clone(),
         }))
     }
@@ -193,16 +193,10 @@ impl NodeRpcService for Arc<RwLock<State>> {
             Some(block) => Ok(Response::new(BlockInfoResponse {
                 status: 0,
                 block: Some(block.clone().into()),
-                next_block_hash: self
-                    .read()
-                    .await
-                    .blockchain
-                    .get_next_block_hash(&request.hash),
             })),
             _ => Ok(Response::new(BlockInfoResponse {
                 status: 1,
                 block: None,
-                next_block_hash: None,
             })),
         }
     }
