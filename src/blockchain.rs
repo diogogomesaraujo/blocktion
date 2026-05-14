@@ -15,7 +15,11 @@ use crate::blockchain::{
 };
 use blake2::Blake2b512;
 use num_bigint::BigUint;
-use std::{cmp::Ordering, collections::HashMap, error::Error};
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, HashSet},
+    error::Error,
+};
 
 const EXECUTE_AFTER_N_BLOCKS: usize = 0;
 
@@ -642,6 +646,7 @@ pub struct Blockchain {
     pub commited_pointer: usize,
     pub transaction_pool: TransactionPool,
     pub difficulty: u32,
+    pub pruned: HashSet<String>, // Hashes of blocks that were pruned
 }
 
 impl Blockchain {
@@ -650,6 +655,7 @@ impl Blockchain {
         Ok(Self {
             transaction_pool: TransactionPool::new(),
             blocks: HashMap::new(),
+            pruned: HashSet::new(),
             longest_chain: vec![],
             commited_pointer: 0,
             difficulty,
@@ -678,6 +684,14 @@ impl Blockchain {
 
     /// Function that accepts a block proposed by another node.
     pub fn accept_block(&mut self, block: Block) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if self.pruned.contains(&block.hash) {
+            return Err("The block proposed has been pruned.".into());
+        }
+
+        if self.pruned.contains(&block.previous_hash) {
+            return Err("The block proposed has a pruned parent.".into());
+        }
+
         if let Some(_) = self.blocks.get(&block.hash) {
             tracing::warn!("Already have block: {:?}", block);
         }
