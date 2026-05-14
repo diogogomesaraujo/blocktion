@@ -1,29 +1,4 @@
-each node has its own mempool/cache and proposes the blocks himself
-(should mempool/cache really be a hashmap ordered by timestamp?)
-
-longest chain like bitcoin (to handle forks -> smallest hash)
-only recognize a transaction is executed after 8 blocks are in front.
-no money only bids (start/stop auction, bid)
-
-
-dht:
-blockchain on join -> boot node gives the chain
-delete all logic regarding stores store
-dht for peer discovery
-
-
-quando um node faz bootstrap manda tb uma gRPC a pedir a blockchain e constroi o seu estado com a resposta.
-o bootstrap node quando recebe uma connecção (connection established) envia a blockchain ao peer.
-o peer dá stall enquanto espera a resposta -> simples await
-o bootstrap node envia a blockchain assincronamente.
-
-
-------------------------------------------------------------------------------------------------------------------------
-
-a transaction pool deve ser HashMap<String, Transaction> onde o ID é a key
-isto remove problema quando created_at é igual -> elimina silenciosamente a transaction processada em primeiro lugar
-
-
-TODO: when a node tries to fix the chain and rethrow the transactions they need to be evaluated to see
-if they are already in the chain and also only one of the nodes can post a block with those transactions
-|-> idea -> only the block that registered a transaction can rethrow it?
+- change backend logic to hold for response instead of state (when transacton is commited respond).
+- when node doesn't know previous block asks for it.
+- smallest hash logic and epoch to see if a block with smaller hash appeared after the commited block use that instead.
+- stake -> blocks commited == computation - if block is malicious cut reputation by half. (constant reputation gain, linear-inverse reputation loss)
