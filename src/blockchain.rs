@@ -825,7 +825,23 @@ impl Blockchain {
 
         self.longest_chain = Self::find_longest_branch(&branch_map, "0").0[1..].to_vec();
 
+        // prune
+
+        self.prune(&branch_map);
+
         Ok(())
+    }
+
+    //maybe will need to take more args for recursion
+    pub fn prune(&mut self, _branch_map: &HashMap<String, Vec<String>>) {
+        if self.longest_chain.len() < EXECUTE_AFTER_N_BLOCKS {
+            return;
+        }
+        // take commit pointer (longest chain until EXECUTE_AFTER_N_BLOCKS from end)
+        // take the branch comprising from genesis to commit
+        // if there is a branch starting at any of those blocks
+        // recursively prune those blocks
+        todo!()
     }
 }
 
