@@ -833,15 +833,19 @@ impl Blockchain {
     }
 
     //maybe will need to take more args for recursion
-    pub fn prune(&mut self, _branch_map: &HashMap<String, Vec<String>>) {
+    pub fn prune(
+        &mut self,
+        _branch_map: &HashMap<String, Vec<String>>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         if self.longest_chain.len() < EXECUTE_AFTER_N_BLOCKS {
-            return;
+            return Ok(());
         }
+        // TODO;
         // take commit pointer (longest chain until EXECUTE_AFTER_N_BLOCKS from end)
         // take the branch comprising from genesis to commit
         // if there is a branch starting at any of those blocks
         // recursively prune those blocks
-        todo!()
+        Ok(())
     }
 }
 
