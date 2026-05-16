@@ -135,11 +135,3 @@ impl Runtime {
         Ok(())
     }
 }
-
-#[derive(Debug)]
-pub enum AcceptBlockError {
-    AlreadyKnown,
-    MissingParent,
-    Pruned,
-    Invalid(String),
-}
