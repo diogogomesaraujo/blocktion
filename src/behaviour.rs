@@ -1,12 +1,4 @@
-use crate::{
-    blockchain::block::Block,
-    reputation::{
-        PUNISH_MALFORMED_BLOCK, PUNISH_PING_FAILURE, PUNISH_UNACCEPTED_BLOCK, REWARD_VALID_BLOCK,
-    },
-    runtime::Runtime,
-    time::now_unix,
-    topic,
-};
+use crate::{blockchain::block::Block, runtime::Runtime, time::now_unix, topic};
 use libp2p::{
     PeerId, identify, kad, ping, request_response,
     swarm::{NetworkBehaviour, SwarmEvent},
@@ -269,9 +261,6 @@ impl DhtBehaviourEvent {
 
                 if let Err(e) = event.result {
                     warn!("Ping failed for {:?}: {:?}", event.peer, e);
-                    runtime
-                        .adjust_score(&event.peer, PUNISH_PING_FAILURE)
-                        .await?;
                 }
             }
 
@@ -310,22 +299,15 @@ impl DhtBehaviourEvent {
 
                     match from_slice::<Block>(&message.data) {
                         Ok(block) => {
-                            if let Err(e) = runtime.accept_block(block, propagation_source).await {
+                            if let Err(e) = runtime
+                                .accept_block_from_gossip(block, propagation_source)
+                                .await
+                            {
                                 error!("Failed to accept block from {:?}: {e}", propagation_source);
-                                runtime
-                                    .adjust_score(&propagation_source, PUNISH_UNACCEPTED_BLOCK)
-                                    .await?;
-                            } else {
-                                runtime
-                                    .adjust_score(&propagation_source, REWARD_VALID_BLOCK)
-                                    .await?;
                             }
                         }
                         Err(e) => {
                             error!("Malformed block from {:?}: {e}", propagation_source);
-                            runtime
-                                .adjust_score(&propagation_source, PUNISH_MALFORMED_BLOCK)
-                                .await?;
                         }
                     }
                 }
@@ -390,13 +372,15 @@ impl DhtBehaviourEvent {
                             Request::BlocksByHashes(hashes) => {
                                 info!("Peer {:?} requested blocks by list of hashes", peer);
 
+                                let chain =
+                                    runtime.state.read().await.blockchain.longest_chain.clone();
                                 let blocks = runtime.state.read().await.blockchain.blocks.clone();
 
                                 Response::BlocksByHashes(
-                                    blocks
-                                        .iter()
-                                        .filter(|(_, block)| hashes.contains(&block.hash))
-                                        .map(|(_, block)| block.clone())
+                                    chain
+                                        .into_iter()
+                                        .filter(|h| hashes.contains(h))
+                                        .filter_map(|h| blocks.get(&h).cloned())
                                         .collect(),
                                 )
                             }
@@ -410,39 +394,40 @@ impl DhtBehaviourEvent {
                             error!("Failed to send response to {:?}: {:?}", peer, e);
                         }
                     }
-                    request_response::Message::Response { response, .. } => {
-                        match response {
-                            Response::BlocksByHashes(blocks) => {
-                                info!("Received longest chain of blocks from {:?}", peer);
-                                for b in blocks {
-                                    runtime.accept_block(b.clone(), peer).await?;
-                                }
-                            }
-
-                            Response::LongestChainBlocks(blocks) => {
-                                info!("Received longest chain of blocks from {:?}", peer);
-                                for b in blocks {
-                                    runtime.accept_block(b.clone(), peer).await?;
-                                }
-                            }
-
-                            Response::LongestChainHashes(hashes) => {
-                                info!("Received longest chain of hashes from peer {:?}", peer);
-
-                                let blocks = runtime.state.read().await.blockchain.blocks.clone();
-
-                                // request missing blocks to peer
-
-                                Request::BlocksByHashes(
-                                    blocks
-                                        .iter()
-                                        .filter(|(_, block)| hashes.contains(&block.hash))
-                                        .map(|(_, block)| block.clone().hash)
-                                        .collect(),
-                                );
+                    request_response::Message::Response { response, .. } => match response {
+                        Response::BlocksByHashes(blocks) => {
+                            info!("Received longest chain of blocks from {:?}", peer);
+                            for b in blocks {
+                                runtime.accept_block_from_r_r(b, peer).await?;
                             }
                         }
-                    }
+
+                        Response::LongestChainBlocks(blocks) => {
+                            info!("Received longest chain of blocks from {:?}", peer);
+                            for b in blocks {
+                                runtime.accept_block_from_r_r(b, peer).await?;
+                            }
+                        }
+
+                        Response::LongestChainHashes(hashes) => {
+                            info!("Received longest chain of hashes from peer {:?}", peer);
+
+                            let blocks = runtime.state.read().await.blockchain.blocks.clone();
+
+                            let missing: Vec<String> = hashes
+                                .into_iter()
+                                .filter(|h| !blocks.contains_key(h))
+                                .collect();
+
+                            if !missing.is_empty() {
+                                runtime
+                                    .swarm
+                                    .behaviour_mut()
+                                    .request_response
+                                    .send_request(&peer, Request::BlocksByHashes(missing));
+                            }
+                        }
+                    },
                 },
                 request_response::Event::OutboundFailure { peer, error, .. } => {
                     warn!("Outbound request failure to {:?}: {:?}", peer, error);

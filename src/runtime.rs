@@ -1,7 +1,6 @@
 use crate::{
     behaviour::{DhtBehaviour, Request},
     blockchain::block::Block,
-    reputation::SCORE_BLACKLIST_THRESHOLD,
     state::State,
     topic::BLOCKS,
 };
@@ -10,7 +9,6 @@ use libp2p_gossipsub::IdentTopic;
 use serde_json::to_vec;
 use std::{error::Error, sync::Arc};
 use tokio::sync::RwLock;
-use tracing::warn;
 
 pub struct Runtime {
     pub swarm: Swarm<DhtBehaviour>,
@@ -25,67 +23,71 @@ impl Runtime {
         }
     }
 
-    /// Function validates and appends to chain a block received over gossip protocol.
-    /// If the block is valid it gossips the block.
-    pub async fn accept_block(
+    pub async fn accept_block_from_gossip(
         &mut self,
         block: Block,
         peer: PeerId,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let accept_block = self
+        self.accept_block(block, peer, true, true).await
+    }
+
+    pub async fn accept_block_from_r_r(
+        &mut self,
+        block: Block,
+        peer: PeerId,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        self.accept_block(block, peer, false, false).await
+    }
+
+    /// Function validates and appends to chain a block received over gossip protocol.
+    /// If the block is valid it gossips the block.
+    async fn accept_block(
+        &mut self,
+        block: Block,
+        peer: PeerId,
+        rebroadcast: bool,
+        request_missing: bool,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let result = self
             .state
             .write()
             .await
             .blockchain
             .accept_block(block.clone());
 
-        // maybe handle pruned blocks premptively before starting whole chain of communication
-
-        match accept_block {
-            Err(_) => {
-                self.state
-                    .write()
-                    .await
-                    .received_blocks
-                    .insert(block.previous_hash.clone(), block.clone());
-
-                tracing::warn!(
-                    "Storing block temporarily and requesting longest chain of hashes to sender: {:?}",
-                    block
-                );
-
-                // request longest chain of hashes / headers
-
-                self.swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_request(&peer, Request::LongestChainHashes);
-            }
-
+        match result {
             Ok(_) => {
                 tracing::info!("Accepted block: {:?}", block);
 
-                self.swarm
-                    .behaviour_mut()
-                    .gossip
-                    .publish(IdentTopic::new(BLOCKS), to_vec(&block)?)?;
+                if rebroadcast {
+                    self.swarm
+                        .behaviour_mut()
+                        .gossip
+                        .publish(IdentTopic::new(BLOCKS), to_vec(&block)?)?;
+                }
+            }
 
-                for (prev_h, block) in self.state.read().await.received_blocks.clone() {
-                    let accepted_block = self
-                        .state
+            // Spaguetti Logic in error handling.
+            // Need to implement a propper error module
+            Err(e) => {
+                let msg = e.to_string();
+
+                if msg == "Already known block." {
+                    return Ok(());
+                }
+
+                if msg == "The block proposed does not point to a block in the chain." {
+                    self.state
                         .write()
                         .await
-                        .blockchain
-                        .accept_block(block.clone());
+                        .received_blocks
+                        .insert(block.hash.clone(), block.clone());
 
-                    if let Ok(_) = accepted_block {
-                        tracing::info!("Accepted block: {:?}", block);
-                        self.state.write().await.received_blocks.remove(&prev_h);
-
+                    if request_missing {
                         self.swarm
                             .behaviour_mut()
-                            .gossip
-                            .publish(IdentTopic::new(BLOCKS), to_vec(&block)?)?;
+                            .request_response
+                            .send_request(&peer, Request::LongestChainHashes);
                     }
                 }
             }
@@ -94,9 +96,8 @@ impl Runtime {
         Ok(())
     }
 
-    /// Adjusts a peer's application score by a given delta, syncs it into
-    /// gossipsub, and blacklists the peer if the score falls at or below
-    /// the threshold.
+    /// Adjusts a peer's application score by a given delta and
+    /// sets syncs application score in gossip sub
     pub async fn adjust_score(
         &mut self,
         peer_id: &PeerId,
@@ -111,11 +112,6 @@ impl Runtime {
             .behaviour_mut()
             .gossip
             .set_application_score(peer_id, score);
-        if score <= SCORE_BLACKLIST_THRESHOLD {
-            warn!("Blacklisting peer {:?} (score={})", peer_id, score);
-            self.swarm.behaviour_mut().gossip.blacklist_peer(peer_id);
-            entry.blacklisted = true;
-        }
 
         Ok(())
     }
@@ -138,4 +134,12 @@ impl Runtime {
         let _ = self.swarm.behaviour_mut().kad.bootstrap();
         Ok(())
     }
+}
+
+#[derive(Debug)]
+pub enum AcceptBlockError {
+    AlreadyKnown,
+    MissingParent,
+    Pruned,
+    Invalid(String),
 }

@@ -179,7 +179,7 @@ impl VirtualMachine for Node {
         //         .swarm
         //         .behaviour_mut()
         //         .request_response
-        //         .send_request(&boot.1, LongestChainRequest::Blocks);
+        //         .send_request(&boot.1, Request::LongestChainBlocks);
         // }
 
         Ok(runtime)
