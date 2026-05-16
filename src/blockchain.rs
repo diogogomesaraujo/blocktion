@@ -796,6 +796,50 @@ impl Blockchain {
         result
     }
 
+    /// Function that prunes every block that belongs to a branch beaten by longest chain
+    /// and whose forking point from longest chain is before EXECUTE_AFTER_N_BLOCKS from end.
+    pub fn prune(
+        &mut self,
+        branch_map: &HashMap<String, Vec<String>>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if self.longest_chain.len() < EXECUTE_AFTER_N_BLOCKS {
+            return Ok(());
+        }
+
+        let longest_chain: HashSet<&String> = self.longest_chain.iter().collect();
+        let mut losers = Vec::new();
+
+        for i in 0..(self.longest_chain.len() - EXECUTE_AFTER_N_BLOCKS) {
+            let parent = self.longest_chain[i].clone();
+            if let Some(cs) = branch_map.get(&parent) {
+                for c in cs {
+                    if !longest_chain.contains(c) {
+                        losers.push(c.clone());
+                    }
+                }
+            }
+        }
+
+        let mut bin: HashSet<String> = losers.clone().into_iter().collect();
+
+        while let Some(h) = losers.pop() {
+            if let Some(cs) = branch_map.get(&h) {
+                for c in cs {
+                    if bin.insert(c.clone()) {
+                        losers.push(c.clone());
+                    }
+                }
+            }
+        }
+
+        for h in bin {
+            self.pruned.insert(h.clone());
+            self.blocks.remove(&h);
+        }
+
+        Ok(())
+    }
+
     pub fn fix(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         // construct branch map
 
@@ -814,31 +858,8 @@ impl Blockchain {
 
         // prune
 
-        // self.prune(&branch_map)?;
+        self.prune(&branch_map)?;
 
-        Ok(())
-    }
-
-    /// Function that prunes every block that belongs to a branch beaten by longest chain
-    /// for more than EXECUTE_AFTER_N_BLOCKS.
-    pub fn _prune(
-        &mut self,
-        branch_map: &HashMap<String, Vec<String>>,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        if self.longest_chain.len() < EXECUTE_AFTER_N_BLOCKS {
-            return Ok(());
-        }
-
-        for i in 0..(self.longest_chain.len() - EXECUTE_AFTER_N_BLOCKS) {
-            for (_, branch) in branch_map {
-                if branch.contains(&self.longest_chain[i]) && branch.clone() != self.longest_chain {
-                    for h in branch {
-                        self.pruned.insert(h.clone());
-                        self.blocks.remove(h);
-                    }
-                }
-            }
-        }
         Ok(())
     }
 }
