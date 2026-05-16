@@ -9,9 +9,12 @@
 //! - [Transaction Mempool](https://medium.com/coinmonks/creating-a-blockchain-part-6-transaction-mempool-and-tx-encoding-a1581479449e);
 //! - [Merkle Tree in Blockchain Implementation](https://dsvynarenko.hashnode.dev/designing-blockchain-4-merkle-trees-and-state-verification).
 
-use crate::blockchain::{
-    block::Block,
-    transaction::{Transaction, TransactionPool},
+use crate::{
+    blockchain::{
+        block::Block,
+        transaction::{Transaction, TransactionPool},
+    },
+    error::AcceptBlockError,
 };
 use blake2::Blake2b512;
 use num_bigint::BigUint;
@@ -685,28 +688,24 @@ impl Blockchain {
         block: Block,
         transaction_notifiers: &mut HashMap<String, (Arc<Notify>, AtomicBool)>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        if self.blocks.contains_key(&block.hash) {
-            return Err("Already known block.".into());
-        }
-
         if self.pruned.contains(&block.hash) {
-            return Err("The block proposed has been pruned.".into());
+            return Err(AcceptBlockError::Pruned.into());
         }
 
         if self.pruned.contains(&block.previous_hash) {
-            return Err("The block proposed has a pruned parent.".into());
+            return Err(AcceptBlockError::PrunedParent.into());
         }
 
         if !block.verify()? {
-            return Err("The block proposed has an invalid hash.".into());
+            return Err(AcceptBlockError::InvalidHash.into());
         }
-        // leave the error message be. right now accept_block logic depends on it
+
         if !self.has_previous_block(&block.previous_hash) {
-            return Err("The block proposed does not point to a block in the chain.".into());
+            return Err(AcceptBlockError::Orphan.into());
         }
 
         if merkle::root(&block.transactions)? != block.merkle_root {
-            return Err("The order of transactions is wrong.".into());
+            return Err(AcceptBlockError::WrongTransactionOrder.into());
         }
 
         self.verify()?;
@@ -862,6 +861,7 @@ impl Blockchain {
 
         for h in bin {
             self.pruned.insert(h.clone());
+
             self.blocks.remove(&h);
         }
 
