@@ -35,6 +35,10 @@ message BlockInfoRequest {
 
 message LongestChainRequest {}
 
+message AccountExistsRequest {
+  string public_key = 1;
+}
+
 // Response Types
 
 enum RequestStatus {
@@ -79,8 +83,13 @@ message LongestChainResponse {
   repeated string longest_chain = 2;
 }
 
+message AccountExistsResponse {
+  RequestStatus exists = 1;
+}
+
 service NodeRpcService {
   rpc Transaction(TransactionRequest) returns (TransactionResponse);
   rpc BlockInfo(BlockInfoRequest) returns (BlockInfoResponse);
   rpc LongestChain(LongestChainRequest) returns (LongestChainResponse);
+  rpc AccountExists(AccountExistsRequest) returns (AccountExistsResponse);
 }

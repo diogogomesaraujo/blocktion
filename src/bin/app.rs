@@ -1,9 +1,9 @@
+use crate::{bye::Bye, logkeys::LogKeys};
+use clap::Parser;
 use color_eyre::eyre::Result;
 use crossterm::event::{self};
 use ratatui::{DefaultTerminal, Frame};
 use ratatui_textarea::{Input, Key};
-
-use crate::{bye::Bye, logkeys::LogKeys};
 
 #[async_trait::async_trait]
 pub trait Screen {
@@ -12,13 +12,80 @@ pub trait Screen {
 }
 
 mod helper {
+    use std::error::Error;
+
+    use ed25519_dalek_blake2b::{Keypair, PublicKey, SecretKey};
+    use ratatui::{
+        Frame,
+        layout::{Alignment, Constraint, Layout},
+        widgets::{Block, Clear, Paragraph, Wrap},
+    };
+
     pub fn validate_field(field: &str) -> bool {
         field.trim().is_empty()
+    }
+
+    pub fn keypair_from_str(
+        public_key: &str,
+        private_key: &str,
+    ) -> Result<Keypair, Box<dyn Error>> {
+        match (
+            PublicKey::from_bytes(&hex::decode(public_key)?),
+            SecretKey::from_bytes(&hex::decode(private_key)?),
+        ) {
+            (Ok(pk), Ok(sk)) => Ok(Keypair {
+                secret: sk,
+                public: pk,
+            }),
+            _ => Err("Invalid keypair.".into()),
+        }
+    }
+
+    pub fn lines_to_string(lines: &[String]) -> String {
+        lines
+            .iter()
+            .fold(String::new(), |acc, l| [acc, l.clone()].concat())
+    }
+
+    pub fn render_popup(f: &mut Frame, text: String) {
+        let [_, l, _] = Layout::horizontal([
+            Constraint::Fill(1),
+            Constraint::Percentage(60),
+            Constraint::Fill(1),
+        ])
+        .areas(f.area());
+        let [_, l, _] = Layout::vertical([
+            Constraint::Fill(1),
+            Constraint::Length(6),
+            Constraint::Fill(1),
+        ])
+        .areas(l);
+        let popup = Paragraph::new(text)
+            .centered()
+            .wrap(Wrap { trim: true })
+            .alignment(Alignment::Center)
+            .block(
+                Block::bordered()
+                    .title_bottom(" Click enter to close. ")
+                    .title_alignment(Alignment::Center),
+            );
+        f.render_widget(Clear, l);
+        f.render_widget(popup, l);
     }
 }
 
 mod logkeys {
-    use crate::{Screen, dashboard::Dashboard, genkeys::GenKeys, helper::validate_field};
+    use std::sync::{Arc, atomic::AtomicBool};
+
+    use crate::{
+        Screen,
+        dashboard::Dashboard,
+        genkeys::GenKeys,
+        helper::{lines_to_string, validate_field},
+    };
+    use blocktion::state::blockchain::{
+        AccountExistsRequest, RequestStatus, node_rpc_service_client::NodeRpcServiceClient,
+    };
     use ratatui::{
         layout::{Alignment, Constraint, Layout},
         style::{Style, Stylize},
@@ -26,6 +93,8 @@ mod logkeys {
         widgets::{Block, Borders, Paragraph},
     };
     use ratatui_textarea::{Input, Key, TextArea};
+    use tokio::sync::Notify;
+    use tonic::Request;
 
     #[derive(Clone)]
     pub enum Field {
@@ -52,15 +121,17 @@ mod logkeys {
         }
     }
 
-    #[derive(Clone)]
     pub struct LogKeys<'a> {
         pub public_key_textarea: TextArea<'a>,
         pub private_key_textarea: TextArea<'a>,
         pub field: Field,
+        pub node: String,
+        pub waiting: (Arc<Notify>, AtomicBool),
+        pub popup: Option<String>,
     }
 
     impl LogKeys<'_> {
-        pub fn new() -> Self {
+        pub fn new(node: String) -> Self {
             let mut public_key_textarea = TextArea::default();
             let mut private_key_textarea = TextArea::default();
 
@@ -84,9 +155,12 @@ mod logkeys {
             private_key_textarea.set_placeholder_text(" Paste your private key here...");
 
             Self {
+                node,
                 public_key_textarea,
                 private_key_textarea,
                 field: Field::PublicKey,
+                waiting: (Arc::new(Notify::new()), AtomicBool::new(false)),
+                popup: None,
             }
         }
     }
@@ -94,12 +168,16 @@ mod logkeys {
     #[async_trait::async_trait]
     impl Screen for LogKeys<'_> {
         async fn handle_io(&mut self, input: Input) -> Option<Box<dyn Screen>> {
+            if self.waiting.1.load(std::sync::atomic::Ordering::SeqCst) {
+                return None;
+            }
+
             match input {
                 Input {
                     key: Key::Enter, ..
                 } => {
                     if let Field::GenerateKey = self.field {
-                        return Some(Box::new(GenKeys::new()));
+                        return Some(Box::new(GenKeys::new(self.node.to_string())));
                     }
 
                     if validate_field(
@@ -126,7 +204,29 @@ mod logkeys {
                         return None;
                     }
 
-                    return Some(Box::new(Dashboard::new()));
+                    match NodeRpcServiceClient::connect(self.node.to_string()).await {
+                        Ok(mut conn) => {
+                            if let Ok(res) = conn
+                                .account_exists(Request::new(AccountExistsRequest {
+                                    public_key: lines_to_string(self.public_key_textarea.lines()),
+                                }))
+                                .await
+                            {
+                                let res = res.into_inner();
+                                if res.exists() == RequestStatus::Successful {
+                                    return Some(Box::new(Dashboard::new()));
+                                }
+                            }
+                        }
+
+                        _ => {}
+                    };
+
+                    self.popup = Some(
+                        "The node does not recognize the account. Try again or generate a new keypair.".to_string(),
+                    );
+
+                    None
                 }
 
                 Input { key: Key::Up, .. } => {
@@ -209,6 +309,9 @@ mod logkeys {
             );
             self.public_key_textarea
                 .set_style(Style::default().fg(ratatui::style::Color::White));
+            self.public_key_textarea.set_style(Style::default());
+            self.public_key_textarea
+                .set_placeholder_style(Style::default().dark_gray());
 
             self.private_key_textarea.set_block(
                 Block::default()
@@ -218,9 +321,16 @@ mod logkeys {
             );
             self.private_key_textarea
                 .set_style(Style::default().fg(ratatui::style::Color::White));
+            self.private_key_textarea.set_style(Style::default());
+            self.private_key_textarea
+                .set_placeholder_style(Style::default().dark_gray());
 
             match self.field {
                 Field::PrivateKey => {
+                    self.private_key_textarea
+                        .set_placeholder_style(Style::default().white());
+                    self.private_key_textarea
+                        .set_style(Style::default().white());
                     self.private_key_textarea.set_block(
                         Block::default()
                             .borders(Borders::ALL)
@@ -231,6 +341,9 @@ mod logkeys {
                     );
                 }
                 Field::PublicKey => {
+                    self.public_key_textarea
+                        .set_placeholder_style(Style::default().white());
+                    self.public_key_textarea.set_style(Style::default().white());
                     self.public_key_textarea.set_block(
                         Block::default()
                             .borders(Borders::ALL)
@@ -258,7 +371,15 @@ mod logkeys {
 mod genkeys {
     use std::error::Error;
 
-    use crate::{Screen, logkeys::LogKeys};
+    use crate::{
+        Screen,
+        helper::{keypair_from_str, render_popup},
+        logkeys::LogKeys,
+    };
+    use blocktion::{
+        blockchain::transaction::{Data, Transaction},
+        state::blockchain::node_rpc_service_client::NodeRpcServiceClient,
+    };
     use clipboard::{ClipboardContext, ClipboardProvider};
     use ed25519_dalek_blake2b::Keypair;
     use hex::ToHex;
@@ -270,6 +391,7 @@ mod genkeys {
         widgets::{Block, Borders, Paragraph},
     };
     use ratatui_textarea::{Input, Key};
+    use tonic::Request;
 
     const GENERATE_ANOTHER_PAIR: &str = "Not satisfied? Generate another keypair.";
 
@@ -303,16 +425,20 @@ mod genkeys {
         pub public_key_content: String,
         pub private_key_content: String,
         pub field: Field,
+        pub node: String,
+        pub popup: Option<String>,
     }
 
     impl GenKeys {
-        pub fn new() -> Self {
+        pub fn new(node: String) -> Self {
             let keypair = Keypair::generate(&mut OsRng);
 
             Self {
                 public_key_content: keypair.public.encode_hex(),
                 private_key_content: keypair.secret.encode_hex(),
                 field: Field::PublicKey,
+                node,
+                popup: None,
             }
         }
     }
@@ -324,11 +450,16 @@ mod genkeys {
                 Input {
                     key: Key::Enter, ..
                 } => {
-                    if let Field::GenerateAnotherKey = self.field {
-                        return Some(Box::new(GenKeys::new()));
+                    if let Some(_) = self.popup {
+                        self.popup = None;
+                        return None;
                     }
 
-                    let mut logkeys = LogKeys::new();
+                    if let Field::GenerateAnotherKey = self.field {
+                        return Some(Box::new(GenKeys::new(self.node.to_string())));
+                    }
+
+                    let mut logkeys = LogKeys::new(self.node.to_string());
 
                     logkeys.private_key_textarea.select_all();
                     logkeys.private_key_textarea.cut();
@@ -342,7 +473,52 @@ mod genkeys {
                         .public_key_textarea
                         .insert_str(&self.public_key_content);
 
-                    Some(Box::new(logkeys))
+                    match NodeRpcServiceClient::connect(self.node.to_string()).await {
+                        Ok(mut conn) => {
+                            let keys = match keypair_from_str(
+                                &self.public_key_content,
+                                &self.private_key_content,
+                            ) {
+                                Ok(keys) => keys,
+                                Err(_) => {
+                                    self.popup =
+                                        Some("Failed to validate the keys provided.".to_string());
+                                    return None;
+                                }
+                            };
+                            let t = match Transaction::sign(
+                                Data::CreateUserAccount {
+                                    public_key: keys.public.encode_hex(),
+                                },
+                                &keys.public.encode_hex::<String>(),
+                                0,
+                                &keys,
+                            ) {
+                                Ok(t) => t,
+                                Err(_) => {
+                                    self.popup = Some(
+                                        "Failed to sign the create account transaction."
+                                            .to_string(),
+                                    );
+                                    return None;
+                                }
+                            }
+                            .into();
+                            if let Ok(res) = conn.transaction(Request::new(t)).await {
+                                let res = res.into_inner();
+                                if res.status == 0 {
+                                    return Some(Box::new(logkeys));
+                                }
+                            }
+                        }
+
+                        _ => {}
+                    };
+
+                    self.popup = Some(
+                        "The blockchain did not accept the create account transaction.".to_string(),
+                    );
+                    None
                 }
 
                 Input { key: Key::Up, .. } => {
@@ -476,6 +652,10 @@ mod genkeys {
             f.render_widget(input_box_pk, input_chunks_pk[1]);
             f.render_widget(input_box_sk, input_chunks_sk[1]);
             f.render_widget(new_keys_par, input_box_layout.split(logkeys_chunks[5])[1]);
+
+            if let Some(p) = self.popup.clone() {
+                render_popup(f, p);
+            }
         }
     }
 }
@@ -710,9 +890,9 @@ struct App {
 }
 
 impl App {
-    fn new() -> Self {
+    fn new(node: String) -> Self {
         Self {
-            current_screen: Box::new(LogKeys::new()),
+            current_screen: Box::new(LogKeys::new(node)),
         }
     }
 
@@ -742,11 +922,20 @@ impl App {
     }
 }
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[arg(long)]
+    node: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args = Args::parse();
+
     color_eyre::install()?;
     let terminal = ratatui::init();
-    let mut app = App::new();
+    let mut app = App::new(args.node);
     let result = app.run(terminal).await;
     result
 }

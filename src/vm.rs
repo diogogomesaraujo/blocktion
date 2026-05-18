@@ -123,12 +123,11 @@ pub trait VirtualMachine {
 
                         let State {
                             blockchain,
-                            world_state,
                             notifiers,
                             ..
                         } = &mut *state;
 
-                        match blockchain.propose_block(&public_key, notifiers, world_state) {
+                        match blockchain.propose_block(&public_key, notifiers) {
                             Ok(block) => block,
                             Err(_) => {
                                 sleep(NEW_BLOCK_SPEED).await;

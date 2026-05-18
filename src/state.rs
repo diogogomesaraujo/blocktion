@@ -1,11 +1,12 @@
 use crate::blockchain::block::Block;
 use crate::blockchain::transaction::{Data, Transaction};
-use crate::blockchain::{Blockchain, BlockchainWorldState};
+use crate::blockchain::{Blockchain, WorldState};
 use crate::state::blockchain::node_rpc_service_server::{NodeRpcService, NodeRpcServiceServer};
 use crate::state::blockchain::transaction_request::Record;
 use crate::state::blockchain::{
-    Bid, BlockInfoRequest, BlockInfoResponse, CreateAccount, CreateAuction, LongestChainRequest,
-    LongestChainResponse, TransactionRequest, TransactionResponse,
+    AccountExistsRequest, AccountExistsResponse, Bid, BlockInfoRequest, BlockInfoResponse,
+    CreateAccount, CreateAuction, LongestChainRequest, LongestChainResponse, TransactionRequest,
+    TransactionResponse,
 };
 use std::collections::HashMap;
 use std::error::Error;
@@ -21,7 +22,6 @@ use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct State {
-    pub world_state: BlockchainWorldState,
     pub rpc_address: SocketAddr,
     pub blockchain: Blockchain,
     pub received_blocks: HashMap<String, Block>,
@@ -35,7 +35,6 @@ impl State {
             blockchain: Blockchain::new(u32::MAX)?,
             received_blocks: HashMap::new(),
             notifiers: HashMap::new(),
-            world_state: BlockchainWorldState::new(),
         })
     }
 }
@@ -181,5 +180,21 @@ impl NodeRpcService for Arc<RwLock<State>> {
                 block: None,
             })),
         }
+    }
+
+    async fn account_exists(
+        &self,
+        request: Request<AccountExistsRequest>,
+    ) -> Result<Response<AccountExistsResponse>, Status> {
+        let exists = match self
+            .read()
+            .await
+            .blockchain
+            .get_account(&request.into_inner().public_key)
+        {
+            Some(_) => 0,
+            None => 1,
+        };
+        Ok(Response::new(AccountExistsResponse { exists }))
     }
 }

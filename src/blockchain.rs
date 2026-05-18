@@ -698,11 +698,10 @@ impl Blockchain {
     }
 
     /// Function that accepts a block proposed by another node.
-    pub fn accept_block<W: WorldState>(
+    pub fn accept_block(
         &mut self,
         block: Block,
         notifiers: &HashMap<String, Arc<(Notify, AtomicBool)>>,
-        world_state: &mut W,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         if self.blocks.contains_key(&block.hash) {
             return Err("Already known block.".into());
@@ -732,13 +731,13 @@ impl Blockchain {
 
         self.push_block(block);
 
-        self.fix(notifiers, world_state)?;
+        self.fix(notifiers)?;
 
         Ok(())
     }
 
-    fn execute_single_transaction<W: WorldState>(
-        world_state: &mut W,
+    fn execute_single_transaction(
+        &mut self,
         transaction: &Transaction,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         transaction.verify()?;
@@ -753,11 +752,11 @@ impl Blockchain {
                     return Err("Create account nonce must be 0.".into());
                 }
 
-                world_state.create_account(public_key.clone())?;
+                self.create_account(public_key.clone())?;
             }
 
             Data::CreateAuction { .. } | Data::Bid { .. } => {
-                let account = world_state
+                let account = self
                     .get_account_mut(&transaction.from)
                     .ok_or("Unknown account.")?;
 
@@ -773,11 +772,7 @@ impl Blockchain {
     }
 
     /// Function that notifies RPC clients that the transaction was validated.
-    fn execute_transactions<W: WorldState>(
-        &mut self,
-        notifiers: &HashMap<String, Arc<(Notify, AtomicBool)>>,
-        world_state: &mut W,
-    ) {
+    fn execute_transactions(&mut self, notifiers: &HashMap<String, Arc<(Notify, AtomicBool)>>) {
         let mut count = 0;
         for i in self.commited_pointer
             ..(self
@@ -788,7 +783,7 @@ impl Blockchain {
             let h = &self.longest_chain[i];
             if let Some(b) = self.blocks.get(h) {
                 for t in b.transactions.clone() {
-                    let executed = match Self::execute_single_transaction(world_state, &t) {
+                    let executed = match self.execute_single_transaction(&t) {
                         Ok(()) => true,
                         Err(e) => {
                             tracing::warn!("Rejected transaction {}: {}", t.id, e);
@@ -810,11 +805,10 @@ impl Blockchain {
     }
 
     /// Function that appends a block to the blockchain.
-    pub fn propose_block<W: WorldState>(
+    pub fn propose_block(
         &mut self,
         public_key: &str,
         notifiers: &HashMap<String, Arc<(Notify, AtomicBool)>>,
-        world_state: &mut W,
     ) -> Result<Block, Box<dyn Error + Send + Sync>> {
         let transactions = self.transaction_pool.flush();
 
@@ -839,7 +833,7 @@ impl Blockchain {
 
         self.push_block(block_to_append.clone());
 
-        self.fix(notifiers, world_state)?;
+        self.fix(notifiers)?;
 
         Ok(block_to_append)
     }
@@ -953,10 +947,9 @@ impl Blockchain {
 
     /// Function that fixes the blockchain by analysing all branches and choosing the one with smallest hash
     /// or the one that is longest if it has grown more that the constant defined.
-    pub fn fix<W: WorldState>(
+    pub fn fix(
         &mut self,
         notifiers: &HashMap<String, Arc<(Notify, AtomicBool)>>,
-        world_state: &mut W,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         // construct branch map
 
@@ -977,7 +970,7 @@ impl Blockchain {
 
         self.prune(&branch_map, notifiers)?;
 
-        self.execute_transactions(notifiers, world_state);
+        self.execute_transactions(notifiers);
 
         Ok(())
     }
@@ -1035,26 +1028,13 @@ impl Blockchain {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct BlockchainWorldState {
-    pub accounts: HashMap<String, Account>,
-}
-
 pub trait WorldState {
     fn get_account(&self, public_key: &str) -> Option<&Account>;
     fn get_account_mut(&mut self, public_key: &str) -> Option<&mut Account>;
     fn create_account(&mut self, public_key: String) -> Result<(), Box<dyn Error + Send + Sync>>;
 }
 
-impl BlockchainWorldState {
-    pub fn new() -> Self {
-        Self {
-            accounts: HashMap::new(),
-        }
-    }
-}
-
-impl WorldState for BlockchainWorldState {
+impl WorldState for Blockchain {
     fn get_account(&self, public_key: &str) -> Option<&Account> {
         self.accounts.get(public_key)
     }

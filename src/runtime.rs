@@ -159,12 +159,11 @@ impl Runtime {
 
             let State {
                 blockchain,
-                world_state,
                 notifiers,
                 ..
             } = &mut *state;
 
-            blockchain.accept_block(block.clone(), notifiers, world_state)
+            blockchain.accept_block(block.clone(), notifiers)
         };
 
         match result {
