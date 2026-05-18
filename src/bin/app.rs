@@ -1,15 +1,13 @@
 use color_eyre::eyre::Result;
-use crossterm::event::{self, Event, KeyCode};
+use crossterm::event::{self};
 use ratatui::{DefaultTerminal, Frame};
-use std::thread::sleep;
+use ratatui_textarea::{Input, Key};
 
-use crate::{
-    bye::{BYE_TIME, Bye},
-    logkeys::LogKeys,
-};
+use crate::{bye::Bye, logkeys::LogKeys};
 
+#[async_trait::async_trait]
 pub trait Screen {
-    fn handle_input(&mut self, key: KeyCode) -> Option<Box<dyn Screen>>;
+    async fn handle_io(&mut self, input: Input) -> Option<Box<dyn Screen>>;
     fn render(&mut self, f: &mut Frame);
 }
 
@@ -20,17 +18,14 @@ mod helper {
 }
 
 mod logkeys {
-    use crate::{Screen, helper::validate_field};
-    use crossterm::event::KeyCode;
+    use crate::{Screen, genkeys::GenKeys, helper::validate_field};
     use ratatui::{
         layout::{Alignment, Constraint, Layout},
         style::{Style, Stylize},
         symbols::border,
         widgets::{Block, Borders, Paragraph},
     };
-
-    const PUBLIC_KEY_REQUIRED: &str = "A public key is required.";
-    const PRIVATE_KEY_REQUIRED: &str = "A private key is required.";
+    use ratatui_textarea::{Input, Key, TextArea};
 
     #[derive(Clone)]
     pub enum Field {
@@ -58,87 +53,115 @@ mod logkeys {
     }
 
     #[derive(Clone)]
-    pub struct LogKeys {
-        pub public_key_content: String,
-        pub private_key_content: String,
+    pub struct LogKeys<'a> {
+        pub public_key_textarea: TextArea<'a>,
+        pub private_key_textarea: TextArea<'a>,
         pub field: Field,
     }
 
-    impl LogKeys {
+    impl LogKeys<'_> {
         pub fn new() -> Self {
+            let mut public_key_textarea = TextArea::default();
+            let mut private_key_textarea = TextArea::default();
+
+            public_key_textarea.set_block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Public Key ")
+                    .title_alignment(Alignment::Left),
+            );
+            public_key_textarea.set_cursor_line_style(Style::default());
+
+            private_key_textarea.set_block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Private Key ")
+                    .title_alignment(Alignment::Left),
+            );
+            private_key_textarea.set_cursor_line_style(Style::default());
+
+            public_key_textarea.set_placeholder_text(" Paste your public key here...");
+            private_key_textarea.set_placeholder_text(" Paste your private key here...");
+
             Self {
-                public_key_content: String::new(),
-                private_key_content: String::new(),
+                public_key_textarea,
+                private_key_textarea,
                 field: Field::PublicKey,
             }
         }
     }
 
-    impl Screen for LogKeys {
-        fn handle_input(&mut self, key: crossterm::event::KeyCode) -> Option<Box<dyn Screen>> {
-            match key {
-                KeyCode::Char(c) => match self.field {
-                    Field::PublicKey => {
-                        if &self.public_key_content == PUBLIC_KEY_REQUIRED {
-                            self.public_key_content = String::new();
-                        }
-                        self.public_key_content.push(c);
-                    }
-                    Field::PrivateKey => {
-                        if &self.private_key_content == PRIVATE_KEY_REQUIRED {
-                            self.private_key_content = String::new();
-                        }
-                        self.private_key_content.push(c);
-                    }
-                    _ => {}
-                },
-
-                KeyCode::Enter => {
-                    if validate_field(&self.public_key_content) {
-                        self.public_key_content = PUBLIC_KEY_REQUIRED.to_string();
-                        return Some(Box::new(self.clone()));
+    #[async_trait::async_trait]
+    impl Screen for LogKeys<'_> {
+        async fn handle_io(&mut self, input: Input) -> Option<Box<dyn Screen>> {
+            match input {
+                Input {
+                    key: Key::Enter, ..
+                } => {
+                    if let Field::GenerateKey = self.field {
+                        return Some(Box::new(GenKeys::new()));
                     }
 
-                    if validate_field(&self.private_key_content) {
-                        self.private_key_content = PRIVATE_KEY_REQUIRED.to_string();
-                        return Some(Box::new(self.clone()));
+                    if validate_field(
+                        &self
+                            .public_key_textarea
+                            .lines()
+                            .iter()
+                            .fold(String::new(), |acc, l| [acc, l.clone()].concat()),
+                    ) {
+                        self.public_key_textarea
+                            .set_placeholder_text(" A public key is required!");
+                        return None;
                     }
 
-                    return Some(Box::new(self.clone()));
+                    if validate_field(
+                        &self
+                            .private_key_textarea
+                            .lines()
+                            .iter()
+                            .fold(String::new(), |acc, l| [acc, l.clone()].concat()),
+                    ) {
+                        self.private_key_textarea
+                            .set_placeholder_text(" A private key is required!");
+                        return None;
+                    }
+
+                    todo!()
                 }
 
-                KeyCode::Backspace => match self.field {
-                    Field::PublicKey => {
-                        self.public_key_content.pop();
-                    }
-                    Field::PrivateKey => {
-                        self.private_key_content.pop();
-                    }
-                    _ => {}
-                },
-
-                KeyCode::Up => {
+                Input { key: Key::Up, .. } => {
                     if let Some(f) = self.field.toggle_up() {
                         self.field = f;
                     };
+                    None
                 }
 
-                KeyCode::Down => {
+                Input { key: Key::Down, .. } => {
                     if let Some(f) = self.field.toggle_down() {
                         self.field = f;
                     };
+                    None
                 }
 
-                _ => {}
+                key => match self.field {
+                    Field::PublicKey => {
+                        self.public_key_textarea.input(key);
+                        None
+                    }
+                    Field::PrivateKey => {
+                        self.private_key_textarea.input(key);
+                        None
+                    }
+                    _ => None,
+                },
             }
-            None
         }
 
         fn render(&mut self, f: &mut ratatui::prelude::Frame) {
             let size = f.area();
 
             let block = Block::default()
-                .title_bottom("Use ↑/↓ to move, enter to submit, esc to quit")
+                .title_bottom("Use ↑/↓ to move, enter to continue, ^X to quit")
                 .title_alignment(Alignment::Center);
             f.render_widget(block, size);
 
@@ -181,10 +204,246 @@ mod logkeys {
                     Constraint::Percentage(70),
                     Constraint::Min(2),
                 ]);
+
+            let input_chunks_pk = input_box_layout.split(logkeys_chunks[1]);
+            let input_chunks_sk = input_box_layout.split(logkeys_chunks[3]);
+
+            let mut new_keys_par = Paragraph::new("No keypair yet? Generate one.").centered();
+
+            self.public_key_textarea.set_block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Public Key ")
+                    .title_alignment(Alignment::Left),
+            );
+            self.public_key_textarea
+                .set_style(Style::default().fg(ratatui::style::Color::White));
+
+            self.private_key_textarea.set_block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Secret Key ")
+                    .title_alignment(Alignment::Left),
+            );
+            self.private_key_textarea
+                .set_style(Style::default().fg(ratatui::style::Color::White));
+
+            match self.field {
+                Field::PrivateKey => {
+                    self.private_key_textarea.set_block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .border_set(border::DOUBLE)
+                            .title(" Secret Key ".bold())
+                            .title_alignment(Alignment::Left)
+                            .style(Style::default().fg(ratatui::style::Color::LightYellow)),
+                    );
+                }
+                Field::PublicKey => {
+                    self.public_key_textarea.set_block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .border_set(border::DOUBLE)
+                            .title(" Public Key ".bold())
+                            .title_alignment(Alignment::Left)
+                            .style(Style::default().fg(ratatui::style::Color::LightYellow)),
+                    );
+                }
+
+                Field::GenerateKey => {
+                    new_keys_par =
+                        Paragraph::new("No keypair yet? Generate one.".bold().light_yellow())
+                            .centered();
+                }
+            };
+
+            f.render_widget(&self.public_key_textarea, input_chunks_pk[1]);
+            f.render_widget(&self.private_key_textarea, input_chunks_sk[1]);
+            f.render_widget(new_keys_par, input_box_layout.split(logkeys_chunks[5])[1]);
+        }
+    }
+}
+
+mod genkeys {
+    use std::error::Error;
+
+    use crate::{Screen, logkeys::LogKeys};
+    use clipboard::{ClipboardContext, ClipboardProvider};
+    use ed25519_dalek_blake2b::Keypair;
+    use hex::ToHex;
+    use rand::rngs::OsRng;
+    use ratatui::{
+        layout::{Alignment, Constraint, Layout},
+        style::{Style, Stylize},
+        symbols::border,
+        widgets::{Block, Borders, Paragraph},
+    };
+    use ratatui_textarea::{Input, Key};
+
+    const GENERATE_ANOTHER_PAIR: &str = "Not satisfied? Generate another keypair.";
+
+    #[derive(Clone)]
+    pub enum Field {
+        PublicKey,
+        PrivateKey,
+        GenerateAnotherKey,
+    }
+
+    impl Field {
+        pub fn toggle_up(&self) -> Option<Self> {
+            match self {
+                Self::GenerateAnotherKey => Some(Self::PrivateKey),
+                Self::PrivateKey => Some(Self::PublicKey),
+                Self::PublicKey => None,
+            }
+        }
+
+        pub fn toggle_down(&self) -> Option<Self> {
+            match self {
+                Self::GenerateAnotherKey => None,
+                Self::PrivateKey => Some(Self::GenerateAnotherKey),
+                Self::PublicKey => Some(Self::PrivateKey),
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    pub struct GenKeys {
+        pub public_key_content: String,
+        pub private_key_content: String,
+        pub field: Field,
+    }
+
+    impl GenKeys {
+        pub fn new() -> Self {
+            let keypair = Keypair::generate(&mut OsRng);
+
+            Self {
+                public_key_content: keypair.public.encode_hex(),
+                private_key_content: keypair.secret.encode_hex(),
+                field: Field::PublicKey,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Screen for GenKeys {
+        async fn handle_io(&mut self, input: Input) -> Option<Box<dyn Screen>> {
+            match input {
+                Input {
+                    key: Key::Enter, ..
+                } => {
+                    if let Field::GenerateAnotherKey = self.field {
+                        return Some(Box::new(GenKeys::new()));
+                    }
+
+                    let mut logkeys = LogKeys::new();
+
+                    logkeys.private_key_textarea.select_all();
+                    logkeys.private_key_textarea.cut();
+                    logkeys
+                        .private_key_textarea
+                        .insert_str(&self.private_key_content);
+
+                    logkeys.public_key_textarea.select_all();
+                    logkeys.public_key_textarea.cut();
+                    logkeys
+                        .public_key_textarea
+                        .insert_str(&self.public_key_content);
+
+                    Some(Box::new(logkeys))
+                }
+
+                Input { key: Key::Up, .. } => {
+                    if let Some(f) = self.field.toggle_up() {
+                        self.field = f;
+                    }
+                    None
+                }
+
+                Input { key: Key::Down, .. } => {
+                    if let Some(f) = self.field.toggle_down() {
+                        self.field = f;
+                    }
+                    None
+                }
+
+                Input {
+                    key: Key::Char('c'),
+                    ctrl: true,
+                    ..
+                } => {
+                    let ctx: Result<ClipboardContext, Box<dyn Error>> = ClipboardProvider::new();
+
+                    if let Ok(mut ctx) = ctx {
+                        let contents = match self.field {
+                            Field::PublicKey => self.public_key_content.clone(),
+                            Field::PrivateKey => self.private_key_content.clone(),
+                            _ => return None,
+                        };
+
+                        if let Err(_) = ctx.set_contents(contents) { /*todo*/ }
+                    }
+                    None
+                }
+
+                _ => None,
+            }
+        }
+
+        fn render(&mut self, f: &mut ratatui::prelude::Frame) {
+            let size = f.area();
+
+            let block = Block::default()
+                .title_bottom(
+                    "Use ↑/↓ to move, ^C to copy key to clipboard, enter to continue, ^X to quit",
+                )
+                .title_alignment(Alignment::Center);
+            f.render_widget(block, size);
+
+            let chunks = Layout::default()
+                .direction(ratatui::layout::Direction::Vertical)
+                .constraints([Constraint::Percentage(5), Constraint::Percentage(90)])
+                .split(size);
+
+            let centered = Layout::default()
+                .direction(ratatui::layout::Direction::Horizontal)
+                .constraints([
+                    Constraint::Min(2),
+                    Constraint::Percentage(70),
+                    Constraint::Min(2),
+                ])
+                .split(chunks[1]);
+
+            let logkeys_box = Block::bordered()
+                .title(" Store the generated keys in a secure place. ".bold())
+                .title_alignment(Alignment::Center);
+            f.render_widget(logkeys_box, centered[1]);
+
+            let logkeys_chunks = Layout::default()
+                .direction(ratatui::layout::Direction::Vertical)
+                .constraints([
+                    Constraint::Min(3),    // title
+                    Constraint::Length(3), // pk
+                    Constraint::Min(2),
+                    Constraint::Length(3), // sk
+                    Constraint::Min(2),
+                    Constraint::Length(1), // gen k
+                    Constraint::Min(3),
+                ])
+                .split(centered[1]);
+
+            let input_box_layout = Layout::default()
+                .direction(ratatui::layout::Direction::Horizontal)
+                .constraints([
+                    Constraint::Min(2),
+                    Constraint::Percentage(70),
+                    Constraint::Min(2),
+                ]);
             let mut input_box_pk = Paragraph::new(self.public_key_content.as_str()).block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title(" Public key ")
+                    .title(" Public Key ")
                     .title_alignment(Alignment::Left),
             );
 
@@ -198,7 +457,7 @@ mod logkeys {
                     .title_alignment(Alignment::Left),
             );
 
-            let mut new_keys_par = Paragraph::new("No keypair yet? Generate one.").centered();
+            let mut new_keys_par = Paragraph::new(GENERATE_ANOTHER_PAIR).centered();
 
             match self.field {
                 Field::PrivateKey => {
@@ -208,7 +467,8 @@ mod logkeys {
                                 .borders(Borders::ALL)
                                 .border_set(border::DOUBLE)
                                 .title(" Secret Key ".bold())
-                                .title_alignment(Alignment::Left),
+                                .title_alignment(Alignment::Left)
+                                .fg(ratatui::style::Color::LightYellow),
                         )
                         .style(Style::default().fg(ratatui::style::Color::LightYellow));
                 }
@@ -219,15 +479,15 @@ mod logkeys {
                                 .borders(Borders::ALL)
                                 .border_set(border::DOUBLE)
                                 .title(" Public Key ".bold())
-                                .title_alignment(Alignment::Left),
+                                .title_alignment(Alignment::Left)
+                                .fg(ratatui::style::Color::LightYellow),
                         )
                         .style(Style::default().fg(ratatui::style::Color::LightYellow));
                 }
 
-                Field::GenerateKey => {
+                Field::GenerateAnotherKey => {
                     new_keys_par =
-                        Paragraph::new("No keypair yet? Generate one.".bold().light_yellow())
-                            .centered();
+                        Paragraph::new(GENERATE_ANOTHER_PAIR.bold().light_yellow()).centered();
                 }
             };
 
@@ -244,14 +504,25 @@ mod bye {
         layout::{Alignment, Constraint, Layout},
         widgets::Paragraph,
     };
-    use std::time::Duration;
+    use ratatui_textarea::Input;
+    use std::{process::exit, time::Duration};
+    use tokio::time::sleep;
 
     pub const BYE_TIME: Duration = Duration::from_secs(1);
 
     pub struct Bye;
 
+    #[async_trait::async_trait]
     impl Screen for Bye {
-        fn handle_input(&mut self, _key: crossterm::event::KeyCode) -> Option<Box<dyn Screen>> {
+        async fn handle_io(&mut self, _input: Input) -> Option<Box<dyn Screen>> {
+            {
+                tokio::spawn(async move {
+                    sleep(BYE_TIME).await;
+                    ratatui::restore();
+                    exit(0);
+                });
+            }
+
             None
         }
 
@@ -283,30 +554,37 @@ impl App {
         }
     }
 
-    fn run(&mut self, mut terminal: DefaultTerminal) -> Result<()> {
+    async fn run(&mut self, mut terminal: DefaultTerminal) -> Result<()> {
         loop {
             terminal.draw(|frame| self.current_screen.render(frame))?;
 
-            if let Event::Key(key) = event::read()? {
-                if key.code == KeyCode::Esc {
-                    terminal.draw(|frame| Bye.render(frame))?;
-                    sleep(BYE_TIME);
+            let input = event::read()?.into();
 
-                    ratatui::restore();
-
-                    return Ok(());
+            if let Input {
+                key: Key::Char('x'),
+                ctrl: true,
+                ..
+            } = input
+            {
+                let mut bye = Bye;
+                bye.handle_io(Input::default()).await;
+                loop {
+                    terminal.draw(|frame| bye.render(frame))?;
                 }
+            }
 
-                self.current_screen.handle_input(key.code);
+            if let Some(screen) = self.current_screen.handle_io(input).await {
+                self.current_screen = screen;
             }
         }
     }
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     color_eyre::install()?;
     let terminal = ratatui::init();
     let mut app = App::new();
-    let result = app.run(terminal);
+    let result = app.run(terminal).await;
     result
 }
