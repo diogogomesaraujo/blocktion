@@ -26,6 +26,7 @@ use std::{
 };
 use tokio::sync::Notify;
 
+/// Constant that defines the number of blocks that need to be appended before a block's transactions can be executed.
 const EXECUTE_AFTER_N_BLOCKS: usize = 2;
 
 /// Type that defines the hash-function chosen to compute the hashes that will form the blockchain.
@@ -230,7 +231,7 @@ pub mod transaction {
         time::{Timestamp, now_unix},
     };
     use blake2::Digest;
-    use ed25519_dalek_blake2b::{Keypair, Signer, Verifier};
+    use ed25519_dalek_blake2b::{Keypair, Signer};
     use serde::{Deserialize, Serialize};
     use std::{collections::HashMap, error::Error};
 
@@ -266,6 +267,7 @@ pub mod transaction {
     }
 
     impl Into<transaction_request::Record> for Data {
+        /// Function that converts the a transaction record into the defined protobuf format.
         fn into(self) -> transaction_request::Record {
             match self {
                 Data::Bid {
@@ -301,6 +303,7 @@ pub mod transaction {
     }
 
     impl Into<state::blockchain::transaction::Record> for Data {
+        /// Function that converts the a transaction record into the defined protobuf format.
         fn into(self) -> state::blockchain::transaction::Record {
             match self {
                 Data::Bid {
@@ -335,6 +338,7 @@ pub mod transaction {
     }
 
     impl Into<TransactionRequest> for Transaction {
+        /// Function that converts the a transaction into the defined protobuf format.
         fn into(self) -> TransactionRequest {
             TransactionRequest {
                 signature: self.signature,
@@ -345,6 +349,7 @@ pub mod transaction {
     }
 
     impl Into<state::blockchain::Transaction> for Transaction {
+        /// Function that converts the a transaction record into the defined protobuf format.
         fn into(self) -> state::blockchain::Transaction {
             state::blockchain::Transaction {
                 id: self.id,
@@ -430,7 +435,7 @@ pub mod transaction {
                 Ok(s) => s,
                 _ => return Err("Malformed signature.".into()),
             };
-            match pk.verify(
+            match pk.verify_strict(
                 match Transaction::serialize(&self.record, &self.from, &self.nonce) {
                     Ok(input) => input,
                     _ => return Err("Invalid fields.".into()),
@@ -445,6 +450,7 @@ pub mod transaction {
     }
 
     impl Hashable for Transaction {
+        /// Function that hashes a transaction.
         fn hash(&self) -> Result<String, Box<dyn Error + Send + Sync>> {
             let input = serde_json::to_string(self)?;
             let h = crate::blockchain::hash::hash(HashFunction::new(), &input);
@@ -574,6 +580,7 @@ pub mod block {
     }
 
     impl Into<state::blockchain::Block> for Block {
+        /// Function that converts a block into the defined protobuf format.
         fn into(self) -> state::blockchain::Block {
             state::blockchain::Block {
                 previous_hash: self.previous_hash,
@@ -635,6 +642,7 @@ pub mod block {
     }
 
     impl Hashable for Block {
+        /// Function that hashes a block.
         fn hash(&self) -> Result<String, Box<dyn Error + Send + Sync>> {
             let input = serde_json::to_string(self)?;
             let h = crate::blockchain::hash::hash(HashFunction::new(), &input);
@@ -667,6 +675,7 @@ impl Blockchain {
         })
     }
 
+    /// Function that checks if the block received exists.
     fn has_previous_block(&self, previous_hash: &str) -> bool {
         if previous_hash == "0" {
             return true;
@@ -678,6 +687,7 @@ impl Blockchain {
         }
     }
 
+    /// Function that pushes a block.
     fn push_block(&mut self, block: Block) {
         self.blocks.insert(block.hash.clone(), block);
     }
@@ -721,6 +731,7 @@ impl Blockchain {
         Ok(())
     }
 
+    /// Function that notifies RPC clients that the transaction was validated.
     fn execute_transactions(&mut self, notifiers: &HashMap<String, Arc<(Notify, AtomicBool)>>) {
         let mut count = 0;
         for i in self.commited_pointer
@@ -791,12 +802,14 @@ impl Blockchain {
         Ok(())
     }
 
+    /// Function that checks if a block has a given transaction.
     pub fn has_transaction(&self, transaction: &Transaction) -> bool {
         self.blocks
             .iter()
             .any(|(_, b)| b.transactions.contains(transaction))
     }
 
+    /// Function that finds the longest chain by looking at all the blockchain's branches.
     fn find_longest_branch(branch_map: &HashMap<String, Vec<String>>, prev_h: &str) -> Vec<String> {
         let mut result = vec![prev_h.to_string()];
 
@@ -882,6 +895,8 @@ impl Blockchain {
         Ok(())
     }
 
+    /// Function that fixes the blockchain by analysing all branches and choosing the one with smallest hash
+    /// or the one that is longest if it has grown more that the constant defined.
     pub fn fix(
         &mut self,
         notifiers: &HashMap<String, Arc<(Notify, AtomicBool)>>,
@@ -911,7 +926,9 @@ impl Blockchain {
     }
 }
 
+/// Trait that defines the functions that can be executed in the blockchain.
 pub trait WorldState {
+    /// Function that gets a block from the chain if it exists.
     fn get_block_from_hash(&self, hash: &str) -> Option<&Block>;
 }
 
