@@ -719,7 +719,7 @@ impl Blockchain {
         if !block.verify()? {
             return Err(AcceptBlockError::InvalidHash.into());
         }
-        // leave the error message be. right now pruning logic depends on it
+
         if !self.has_previous_block(&block.previous_hash) {
             return Err(AcceptBlockError::Orphan.into());
         }
