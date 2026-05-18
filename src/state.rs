@@ -1,7 +1,6 @@
-use crate::blockchain::Blockchain;
-use crate::blockchain::WorldState;
 use crate::blockchain::block::Block;
 use crate::blockchain::transaction::{Data, Transaction};
+use crate::blockchain::{Blockchain, BlockchainWorldState};
 use crate::state::blockchain::node_rpc_service_server::{NodeRpcService, NodeRpcServiceServer};
 use crate::state::blockchain::transaction_request::Record;
 use crate::state::blockchain::{
@@ -22,6 +21,7 @@ use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct State {
+    pub world_state: BlockchainWorldState,
     pub rpc_address: SocketAddr,
     pub blockchain: Blockchain,
     pub received_blocks: HashMap<String, Block>,
@@ -35,6 +35,7 @@ impl State {
             blockchain: Blockchain::new(u32::MAX)?,
             received_blocks: HashMap::new(),
             notifiers: HashMap::new(),
+            world_state: BlockchainWorldState::new(),
         })
     }
 }
@@ -88,7 +89,7 @@ impl NodeRpcService for Arc<RwLock<State>> {
                 match Transaction::new(
                     Data::CreateUserAccount { public_key },
                     t.from,
-                    0,
+                    t.nonce,
                     &t.signature,
                 ) {
                     Ok(t) => t,
@@ -98,19 +99,17 @@ impl NodeRpcService for Arc<RwLock<State>> {
 
             Record::CreateAuctionRequest(CreateAuction {
                 auction_id,
-                from,
                 start_amount,
                 stop_time,
             }) => {
                 match Transaction::new(
                     Data::CreateAuction {
                         auction_id,
-                        from,
                         start_amount,
                         stop_time,
                     },
                     t.from,
-                    0,
+                    t.nonce,
                     &t.signature,
                 ) {
                     Ok(t) => t,
@@ -118,19 +117,11 @@ impl NodeRpcService for Arc<RwLock<State>> {
                 }
             }
 
-            Record::BidRequest(Bid {
-                auction_id,
-                from,
-                amount,
-            }) => {
+            Record::BidRequest(Bid { auction_id, amount }) => {
                 match Transaction::new(
-                    Data::Bid {
-                        auction_id,
-                        from,
-                        amount,
-                    },
+                    Data::Bid { auction_id, amount },
                     t.from,
-                    0,
+                    t.nonce,
                     &t.signature,
                 ) {
                     Ok(t) => t,
@@ -152,13 +143,7 @@ impl NodeRpcService for Arc<RwLock<State>> {
             .notifiers
             .insert(tid.clone(), notify.clone());
 
-        match self
-            .write()
-            .await
-            .blockchain
-            .transaction_pool
-            .add_transaction(transaction)
-        {
+        match self.write().await.blockchain.add_transaction(transaction) {
             Ok(_) => {}
             _ => return Ok(Response::new(TransactionResponse { status: 1 })),
         };
@@ -180,6 +165,7 @@ impl NodeRpcService for Arc<RwLock<State>> {
         request: Request<BlockInfoRequest>,
     ) -> Result<Response<BlockInfoResponse>, Status> {
         let request = request.into_inner();
+
         match self
             .read()
             .await
@@ -190,7 +176,7 @@ impl NodeRpcService for Arc<RwLock<State>> {
                 status: 0,
                 block: Some(block.clone().into()),
             })),
-            _ => Ok(Response::new(BlockInfoResponse {
+            None => Ok(Response::new(BlockInfoResponse {
                 status: 1,
                 block: None,
             })),

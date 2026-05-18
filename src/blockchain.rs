@@ -12,7 +12,7 @@
 use crate::{
     blockchain::{
         block::Block,
-        transaction::{Transaction, TransactionPool},
+        transaction::{Data, Transaction, TransactionPool},
     },
     error::AcceptBlockError,
 };
@@ -255,12 +255,10 @@ pub mod transaction {
         },
         Bid {
             auction_id: String,
-            from: String,
             amount: u64,
         },
         CreateAuction {
             auction_id: String,
-            from: String,
             start_amount: u64,
             stop_time: Timestamp,
         },
@@ -270,24 +268,19 @@ pub mod transaction {
         /// Function that converts the a transaction record into the defined protobuf format.
         fn into(self) -> transaction_request::Record {
             match self {
-                Data::Bid {
-                    auction_id,
-                    from,
-                    amount,
-                } => transaction_request::Record::BidRequest(state::blockchain::Bid {
-                    auction_id,
-                    from,
-                    amount,
-                }),
+                Data::Bid { auction_id, amount } => {
+                    transaction_request::Record::BidRequest(state::blockchain::Bid {
+                        auction_id,
+                        amount,
+                    })
+                }
                 Data::CreateAuction {
                     auction_id,
-                    from,
                     start_amount,
                     stop_time,
                 } => transaction_request::Record::CreateAuctionRequest(
                     state::blockchain::CreateAuction {
                         auction_id,
-                        from,
                         start_amount,
                         stop_time,
                     },
@@ -306,24 +299,19 @@ pub mod transaction {
         /// Function that converts the a transaction record into the defined protobuf format.
         fn into(self) -> state::blockchain::transaction::Record {
             match self {
-                Data::Bid {
-                    auction_id,
-                    from,
-                    amount,
-                } => state::blockchain::transaction::Record::BidRequest(state::blockchain::Bid {
-                    auction_id,
-                    from,
-                    amount,
-                }),
+                Data::Bid { auction_id, amount } => {
+                    state::blockchain::transaction::Record::BidRequest(state::blockchain::Bid {
+                        auction_id,
+                        amount,
+                    })
+                }
                 Data::CreateAuction {
                     auction_id,
-                    from,
                     start_amount,
                     stop_time,
                 } => state::blockchain::transaction::Record::CreateAuctionRequest(
                     state::blockchain::CreateAuction {
                         auction_id,
-                        from,
                         start_amount,
                         stop_time,
                     },
@@ -344,6 +332,7 @@ pub mod transaction {
                 signature: self.signature,
                 from: self.from,
                 record: Some(self.record.into()),
+                nonce: self.nonce,
             }
         }
     }
@@ -503,6 +492,13 @@ pub mod transaction {
             Ok(())
         }
 
+        /// Function that detects duplicate nonces for same sender.
+        pub fn replay(&self, transaction: &Transaction) -> bool {
+            self.0
+                .values()
+                .any(|t| t.from == transaction.from && t.nonce == transaction.nonce)
+        }
+
         /// Function that flushes the current mempool and returns a queue sorted by timestamp.
         pub fn flush(&mut self) -> TransactionQueue {
             let memqueue = self.clone().to_sorted_queue();
@@ -651,6 +647,13 @@ pub mod block {
     }
 }
 
+/// Struct that represents state for a given account
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Account {
+    pub public_key: String,
+    pub nonce: u32,
+}
+
 /// Struct that represents the blockchain that will be used as the ledger for the auction system.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Blockchain {
@@ -659,7 +662,8 @@ pub struct Blockchain {
     pub commited_pointer: usize,
     pub transaction_pool: TransactionPool,
     pub difficulty: u32,
-    pub pruned: HashSet<String>, // Hashes of blocks that were pruned
+    pub pruned: HashSet<String>,
+    pub accounts: HashMap<String, Account>,
 }
 
 impl Blockchain {
@@ -669,6 +673,7 @@ impl Blockchain {
             transaction_pool: TransactionPool::new(),
             blocks: HashMap::new(),
             pruned: HashSet::new(),
+            accounts: HashMap::new(),
             longest_chain: vec![],
             commited_pointer: 0,
             difficulty,
@@ -693,10 +698,11 @@ impl Blockchain {
     }
 
     /// Function that accepts a block proposed by another node.
-    pub fn accept_block(
+    pub fn accept_block<W: WorldState>(
         &mut self,
         block: Block,
         notifiers: &HashMap<String, Arc<(Notify, AtomicBool)>>,
+        world_state: &mut W,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         if self.blocks.contains_key(&block.hash) {
             return Err("Already known block.".into());
@@ -713,7 +719,7 @@ impl Blockchain {
         if !block.verify()? {
             return Err(AcceptBlockError::InvalidHash.into());
         }
-        // leave the error message be. right now pruning logic depends on it
+
         if !self.has_previous_block(&block.previous_hash) {
             return Err(AcceptBlockError::Orphan.into());
         }
@@ -726,13 +732,52 @@ impl Blockchain {
 
         self.push_block(block);
 
-        self.fix(notifiers)?;
+        self.fix(notifiers, world_state)?;
+
+        Ok(())
+    }
+
+    fn execute_single_transaction<W: WorldState>(
+        world_state: &mut W,
+        transaction: &Transaction,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        transaction.verify()?;
+
+        match &transaction.record {
+            Data::CreateUserAccount { public_key } => {
+                if transaction.from != *public_key {
+                    return Err("Create account sender mismatch.".into());
+                }
+
+                if transaction.nonce != 0 {
+                    return Err("Create account nonce must be 0.".into());
+                }
+
+                world_state.create_account(public_key.clone())?;
+            }
+
+            Data::CreateAuction { .. } | Data::Bid { .. } => {
+                let account = world_state
+                    .get_account_mut(&transaction.from)
+                    .ok_or("Unknown account.")?;
+
+                if transaction.nonce != account.nonce {
+                    return Err("Invalid nonce.".into());
+                }
+
+                account.nonce += 1;
+            }
+        }
 
         Ok(())
     }
 
     /// Function that notifies RPC clients that the transaction was validated.
-    fn execute_transactions(&mut self, notifiers: &HashMap<String, Arc<(Notify, AtomicBool)>>) {
+    fn execute_transactions<W: WorldState>(
+        &mut self,
+        notifiers: &HashMap<String, Arc<(Notify, AtomicBool)>>,
+        world_state: &mut W,
+    ) {
         let mut count = 0;
         for i in self.commited_pointer
             ..(self
@@ -742,10 +787,20 @@ impl Blockchain {
         {
             let h = &self.longest_chain[i];
             if let Some(b) = self.blocks.get(h) {
-                for t in b.transactions.iter() {
+                for t in b.transactions.clone() {
+                    let executed = match Self::execute_single_transaction(world_state, &t) {
+                        Ok(()) => true,
+                        Err(e) => {
+                            tracing::warn!("Rejected transaction {}: {}", t.id, e);
+                            false
+                        }
+                    };
+
                     if let Some(notify) = notifiers.get(&t.id) {
                         notify.0.notify_one();
-                        notify.1.store(true, std::sync::atomic::Ordering::SeqCst);
+                        notify
+                            .1
+                            .store(executed, std::sync::atomic::Ordering::SeqCst);
                     }
                 }
             }
@@ -755,10 +810,11 @@ impl Blockchain {
     }
 
     /// Function that appends a block to the blockchain.
-    pub fn propose_block(
+    pub fn propose_block<W: WorldState>(
         &mut self,
         public_key: &str,
         notifiers: &HashMap<String, Arc<(Notify, AtomicBool)>>,
+        world_state: &mut W,
     ) -> Result<Block, Box<dyn Error + Send + Sync>> {
         let transactions = self.transaction_pool.flush();
 
@@ -783,7 +839,7 @@ impl Blockchain {
 
         self.push_block(block_to_append.clone());
 
-        self.fix(notifiers)?;
+        self.fix(notifiers, world_state)?;
 
         Ok(block_to_append)
     }
@@ -897,9 +953,10 @@ impl Blockchain {
 
     /// Function that fixes the blockchain by analysing all branches and choosing the one with smallest hash
     /// or the one that is longest if it has grown more that the constant defined.
-    pub fn fix(
+    pub fn fix<W: WorldState>(
         &mut self,
         notifiers: &HashMap<String, Arc<(Notify, AtomicBool)>>,
+        world_state: &mut W,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         // construct branch map
 
@@ -920,20 +977,105 @@ impl Blockchain {
 
         self.prune(&branch_map, notifiers)?;
 
-        self.execute_transactions(notifiers);
+        self.execute_transactions(notifiers, world_state);
 
         Ok(())
     }
-}
 
-/// Trait that defines the functions that can be executed in the blockchain.
-pub trait WorldState {
-    /// Function that gets a block from the chain if it exists.
-    fn get_block_from_hash(&self, hash: &str) -> Option<&Block>;
-}
+    /// Function that adds transaction to transaction pool.
+    pub fn add_transaction(
+        &mut self,
+        transaction: Transaction,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        transaction.verify()?;
 
-impl WorldState for Blockchain {
-    fn get_block_from_hash(&self, hash: &str) -> Option<&Block> {
+        if self.has_transaction(&transaction) {
+            return Err("Transaction already recorded.".into());
+        }
+
+        match &transaction.record {
+            Data::CreateUserAccount { public_key } => {
+                if transaction.from != *public_key {
+                    return Err("Create account sender mismatch.".into());
+                }
+
+                if transaction.nonce != 0 {
+                    return Err("Create account nonce must be 0.".into());
+                }
+
+                if self.accounts.contains_key(public_key) {
+                    return Err("Account already exists.".into());
+                }
+            }
+
+            _ => {
+                let expected_nonce = self
+                    .accounts
+                    .get(&transaction.from)
+                    .map(|account| account.nonce)
+                    .ok_or("Unknown account.")?;
+
+                if transaction.nonce < expected_nonce {
+                    return Err("Nonce already used.".into());
+                }
+
+                if self.transaction_pool.replay(&transaction) {
+                    return Err("Duplicate pending nonce.".into());
+                }
+            }
+        }
+
+        self.transaction_pool.add_transaction(transaction)?;
+
+        Ok(())
+    }
+
+    pub fn get_block_from_hash(&self, hash: &str) -> Option<&Block> {
         self.blocks.get(hash)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BlockchainWorldState {
+    pub accounts: HashMap<String, Account>,
+}
+
+pub trait WorldState {
+    fn get_account(&self, public_key: &str) -> Option<&Account>;
+    fn get_account_mut(&mut self, public_key: &str) -> Option<&mut Account>;
+    fn create_account(&mut self, public_key: String) -> Result<(), Box<dyn Error + Send + Sync>>;
+}
+
+impl BlockchainWorldState {
+    pub fn new() -> Self {
+        Self {
+            accounts: HashMap::new(),
+        }
+    }
+}
+
+impl WorldState for BlockchainWorldState {
+    fn get_account(&self, public_key: &str) -> Option<&Account> {
+        self.accounts.get(public_key)
+    }
+
+    fn get_account_mut(&mut self, public_key: &str) -> Option<&mut Account> {
+        self.accounts.get_mut(public_key)
+    }
+
+    fn create_account(&mut self, public_key: String) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if self.accounts.contains_key(&public_key) {
+            return Err("Account already exists.".into());
+        }
+
+        self.accounts.insert(
+            public_key.clone(),
+            Account {
+                public_key,
+                nonce: 1,
+            },
+        );
+
+        Ok(())
     }
 }
